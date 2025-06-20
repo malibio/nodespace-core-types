@@ -2,29 +2,49 @@
 
 **Shared data structures and interfaces for NodeSpace multi-session development environment**
 
-This repository contains the foundational type definitions and trait interfaces that all other NodeSpace repositories depend on. It serves as the **single source of truth** for data structures and contracts across the distributed system.
+This repository contains the **foundational types** that all other NodeSpace repositories depend on as a Cargo dependency. It provides essential data structures like `Node`, `NodeId`, and `NodeSpaceResult` that enable type-safe communication across the distributed system.
 
 ## 🎯 Purpose
 
-- **Shared data structures** - Node types, metadata, search queries, embeddings
-- **Interface contracts** - Traits that services must implement 
-- **Error types** - Standardized error handling across repositories
-- **Validation framework** - Contract compliance testing utilities
+- **Essential data types** - `Node`, `NodeId`, `NodeSpaceResult`, `NodeSpaceError`
+- **Foundational structures** - Core types needed across all services
+- **Type safety** - Ensure consistent data structures via Cargo dependencies
+- **Zero dependencies** - Pure Rust types with no external NodeSpace dependencies
 
 ## 📦 Contents
 
-- **Core data types** - `Node`, `EmbeddingVector`, `SearchQuery`, `RAGQuery`
-- **Service interfaces** - `DataStore`, `NLPEngine`, `WorkflowEngine` traits
-- **Tauri commands** - Complete interface for React ↔ Rust communication
-- **Error handling** - Comprehensive error types with proper propagation
+- **`Node`** - Core entity type with serde_json::Value content
+- **`NodeId`** - Unique identifier type for entities
+- **`NodeSpaceResult<T>`** - Standard Result type for all operations
+- **`NodeSpaceError`** - Comprehensive error type with proper propagation
+- **Utility types** - Supporting structures for cross-service communication
 
 ## 🔗 Dependencies
 
 This repository has **no dependencies** on other NodeSpace repositories. All other repositories depend on this one.
 
+## 🚀 Getting Started
+
+### **New to NodeSpace? Start Here:**
+1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
+2. **Check [Linear workspace](https://linear.app/nodespace)** - Find your current tasks (filter by `nodespace-core-types`)
+3. **Review [Development Workflow](../nodespace-system-design/docs/development-workflow.md)** - Process and procedures
+4. **Study [Service Contracts](../nodespace-system-design/contracts/)** - See how your types are used in service interfaces
+5. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
+
+### **Development Setup:**
+```bash
+# Add to your Cargo.toml
+[dependencies]
+nodespace-core-types = { git = "https://github.com/malibio/nodespace-core-types" }
+
+# Use in your code
+use nodespace_core_types::{Node, NodeId, NodeSpaceResult};
+```
+
 ## 🏗️ Architecture Context
 
-Part of the [NodeSpace system architecture](https://github.com/malibio/nodespace-system-design):
+Part of the [NodeSpace system architecture](../nodespace-system-design/README.md):
 
 1. **`nodespace-core-types`** ← **You are here**
 2. `nodespace-data-store` - Database and vector storage
@@ -33,17 +53,6 @@ Part of the [NodeSpace system architecture](https://github.com/malibio/nodespace
 5. `nodespace-core-logic` - Business logic orchestration
 6. `nodespace-core-ui` - React components and UI
 7. `nodespace-desktop-app` - Tauri application shell
-
-## 🚀 Getting Started
-
-```bash
-# Add to your Cargo.toml
-[dependencies]
-nodespace-core-types = { git = "https://github.com/malibio/nodespace-core-types" }
-
-# Use in your code
-use nodespace_core_types::{Node, DataStore, SearchQuery};
-```
 
 ## 🧪 Testing
 
@@ -54,18 +63,10 @@ cargo check
 # Run contract compliance tests  
 cargo test
 
-# Validate interface compatibility
-cargo run --bin validate-contracts
+# Check that other repos can use these types
+cargo test --all-features
 ```
-
-## 📋 Development Status
-
-- [ ] Copy contracts from system design repo
-- [ ] Set up Cargo workspace
-- [ ] Implement validation utilities
-- [ ] Add comprehensive tests
-- [ ] Documentation and examples
 
 ---
 
-**Project Management:** All tasks tracked in [NodeSpace Project](https://github.com/users/malibio/projects/4)
+**Project Management:** All development tasks tracked in [Linear workspace](https://linear.app/nodespace)
