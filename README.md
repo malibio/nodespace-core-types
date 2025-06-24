@@ -1,3 +1,10 @@
+# ⚠️ BEFORE STARTING ANY WORK
+👉 **STEP 1**: Read development workflow: `../nodespace-system-design/docs/development-workflow.md`
+👉 **STEP 2**: Check Linear for assigned tasks
+👉 **STEP 3**: Repository-specific patterns below
+
+**This README.md only contains**: Repository-specific type definitions and Rust patterns
+
 # NodeSpace Core Types
 
 **Shared data structures and interfaces for NodeSpace multi-session development environment**
