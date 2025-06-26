@@ -36,7 +36,7 @@ This repository has **no dependencies** on other NodeSpace repositories. All oth
 1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
 2. **Check [Linear workspace](https://linear.app/nodespace)** - Find your current tasks (filter by `nodespace-core-types`)
 3. **Review [Development Workflow](../nodespace-system-design/docs/development-workflow.md)** - Process and procedures
-4. **Study [Service Contracts](../nodespace-system-design/contracts/)** - See how your types are used in service interfaces
+4. **See distributed service interfaces** - Services own their interface traits and import types from this repository
 5. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
 
 ### **Development Setup:**
@@ -67,7 +67,7 @@ Part of the [NodeSpace system architecture](../nodespace-system-design/README.md
 # Validate all contracts compile
 cargo check
 
-# Run contract compliance tests  
+# Run type validation tests  
 cargo test
 
 # Check that other repos can use these types
