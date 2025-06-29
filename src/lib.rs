@@ -55,6 +55,8 @@ pub struct Node {
     pub metadata: Option<serde_json::Value>, // Optional system metadata
     pub created_at: String,                  // ISO format timestamp
     pub updated_at: String,                  // ISO format timestamp
+    // Hierarchical relationship
+    pub parent_id: Option<NodeId>,           // → Parent node (None = root)
     // Sibling pointer fields for sequential navigation
     pub next_sibling: Option<NodeId>, // → Next node in sequence (None = last)
     pub previous_sibling: Option<NodeId>, // ← Previous node in sequence (None = first)
@@ -70,6 +72,7 @@ impl Node {
             metadata: None,
             created_at: now.clone(),
             updated_at: now,
+            parent_id: None,
             next_sibling: None,
             previous_sibling: None,
         }
@@ -84,6 +87,7 @@ impl Node {
             metadata: None,
             created_at: now.clone(),
             updated_at: now,
+            parent_id: None,
             next_sibling: None,
             previous_sibling: None,
         }
