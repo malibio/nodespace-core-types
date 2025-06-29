@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 
 // NodeId - database-agnostic unique identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -141,6 +142,22 @@ impl Node {
         self.touch();
     }
 
+    /// Update parent ID
+    pub fn set_parent_id(&mut self, parent_id: Option<NodeId>) {
+        self.parent_id = parent_id;
+        self.touch();
+    }
+
+    /// Check if this node has a parent
+    pub fn has_parent(&self) -> bool {
+        self.parent_id.is_some()
+    }
+
+    /// Check if this node is a root node (no parent)
+    pub fn is_root(&self) -> bool {
+        self.parent_id.is_none()
+    }
+
     /// Check if this node has a next sibling
     pub fn has_next_sibling(&self) -> bool {
         self.next_sibling.is_some()
@@ -266,6 +283,449 @@ impl NodeMetadata {
     pub fn update(&mut self) {
         self.updated_at = chrono::Utc::now().to_rfc3339();
         self.version += 1;
+    }
+}
+
+// Node type classification enum
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NodeType {
+    Text,
+    Image,
+    Task,
+    Document,
+    Link,
+    Entity,
+    Date,
+    Audio,
+    Video,
+    Custom(String),
+}
+
+impl Default for NodeType {
+    fn default() -> Self {
+        NodeType::Text
+    }
+}
+
+impl fmt::Display for NodeType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NodeType::Text => write!(f, "text"),
+            NodeType::Image => write!(f, "image"),
+            NodeType::Task => write!(f, "task"),
+            NodeType::Document => write!(f, "document"),
+            NodeType::Link => write!(f, "link"),
+            NodeType::Entity => write!(f, "entity"),
+            NodeType::Date => write!(f, "date"),
+            NodeType::Audio => write!(f, "audio"),
+            NodeType::Video => write!(f, "video"),
+            NodeType::Custom(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+// Camera information from EXIF data
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CameraInfo {
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub software: Option<String>,
+    pub lens_model: Option<String>,
+    pub focal_length: Option<f32>,        // in mm
+    pub aperture: Option<f32>,            // f-stop value
+    pub shutter_speed: Option<String>,    // e.g., "1/60"
+    pub iso: Option<u32>,
+    pub flash: Option<bool>,
+    pub white_balance: Option<String>,
+    pub orientation: Option<u32>,         // EXIF orientation value 1-8
+}
+
+impl Default for CameraInfo {
+    fn default() -> Self {
+        Self {
+            make: None,
+            model: None,
+            software: None,
+            lens_model: None,
+            focal_length: None,
+            aperture: None,
+            shutter_speed: None,
+            iso: None,
+            flash: None,
+            white_balance: None,
+            orientation: None,
+        }
+    }
+}
+
+// Image metadata extraction results
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageMetadata {
+    pub ai_description: Option<String>,
+    pub detected_objects: Vec<String>,
+    pub scene_classification: Option<String>,
+    pub keywords: Vec<String>,
+    pub color_palette: Vec<String>,        // dominant colors as hex codes
+    pub text_content: Option<String>,      // OCR extracted text
+    pub faces_detected: Option<u32>,       // number of faces
+    pub emotions: Vec<String>,             // detected emotions
+    pub confidence_scores: std::collections::HashMap<String, f32>, // AI confidence for various detections
+}
+
+impl Default for ImageMetadata {
+    fn default() -> Self {
+        Self {
+            ai_description: None,
+            detected_objects: Vec::new(),
+            scene_classification: None,
+            keywords: Vec::new(),
+            color_palette: Vec::new(),
+            text_content: None,
+            faces_detected: None,
+            emotions: Vec::new(),
+            confidence_scores: std::collections::HashMap::new(),
+        }
+    }
+}
+
+// Comprehensive ImageNode structure for multimodal RAG
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageNode {
+    // Core identification
+    pub id: NodeId,
+    pub node_type: NodeType, // Always NodeType::Image
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    
+    // Image data and metadata
+    pub raw_data: Vec<u8>,
+    pub embedding: Vec<f32>, // 384 dimensions for multimodal embeddings
+    pub filename: String,
+    pub content_type: String, // MIME type (image/jpeg, image/png, etc.)
+    pub file_size: usize,
+    
+    // Image properties
+    pub dimensions: (u32, u32), // (width, height)
+    pub timestamp: Option<DateTime<Utc>>, // from EXIF or file metadata
+    pub gps_coordinates: Option<(f64, f64)>, // (latitude, longitude)
+    
+    // EXIF and camera metadata
+    pub camera_info: Option<CameraInfo>,
+    
+    // AI-generated metadata
+    pub ai_metadata: ImageMetadata,
+    
+    // NodeSpace integration
+    pub relationships: Vec<NodeId>, // references to related nodes
+    pub parent_id: Option<NodeId>,  // parent node if this is part of a document
+    
+    // User-provided metadata
+    pub user_description: Option<String>,
+    pub user_tags: Vec<String>,
+    
+    // Sibling pointer fields for sequential navigation
+    pub next_sibling: Option<NodeId>, // → Next image in sequence (None = last)
+    pub previous_sibling: Option<NodeId>, // ← Previous image in sequence (None = first)
+}
+
+impl ImageNode {
+    /// Create a new ImageNode with minimal required data
+    pub fn new(
+        raw_data: Vec<u8>,
+        filename: String,
+        content_type: String,
+        dimensions: (u32, u32),
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: NodeId::new(),
+            node_type: NodeType::Image,
+            created_at: now,
+            updated_at: now,
+            raw_data,
+            embedding: Vec::new(), // Will be populated by NLP engine
+            filename,
+            content_type,
+            file_size: 0, // Will be calculated
+            dimensions,
+            timestamp: None,
+            gps_coordinates: None,
+            camera_info: None,
+            ai_metadata: ImageMetadata::default(),
+            relationships: Vec::new(),
+            parent_id: None,
+            user_description: None,
+            user_tags: Vec::new(),
+            next_sibling: None,
+            previous_sibling: None,
+        }
+    }
+
+    /// Create an ImageNode with existing ID
+    pub fn with_id(
+        id: NodeId,
+        raw_data: Vec<u8>,
+        filename: String,
+        content_type: String,
+        dimensions: (u32, u32),
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            node_type: NodeType::Image,
+            created_at: now,
+            updated_at: now,
+            raw_data,
+            embedding: Vec::new(),
+            filename,
+            content_type,
+            file_size: 0,
+            dimensions,
+            timestamp: None,
+            gps_coordinates: None,
+            camera_info: None,
+            ai_metadata: ImageMetadata::default(),
+            relationships: Vec::new(),
+            parent_id: None,
+            user_description: None,
+            user_tags: Vec::new(),
+            next_sibling: None,
+            previous_sibling: None,
+        }
+    }
+
+    /// Set the file size (typically calculated from raw_data.len())
+    pub fn with_file_size(mut self, file_size: usize) -> Self {
+        self.file_size = file_size;
+        self
+    }
+
+    /// Add embedding data
+    pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self {
+        self.embedding = embedding;
+        self.touch();
+        self
+    }
+
+    /// Set camera information from EXIF data
+    pub fn with_camera_info(mut self, camera_info: CameraInfo) -> Self {
+        self.camera_info = Some(camera_info);
+        self.touch();
+        self
+    }
+
+    /// Set GPS coordinates
+    pub fn with_gps_coordinates(mut self, latitude: f64, longitude: f64) -> Self {
+        self.gps_coordinates = Some((latitude, longitude));
+        self.touch();
+        self
+    }
+
+    /// Set timestamp from EXIF or file metadata
+    pub fn with_timestamp(mut self, timestamp: DateTime<Utc>) -> Self {
+        self.timestamp = Some(timestamp);
+        self.touch();
+        self
+    }
+
+    /// Set AI-generated metadata
+    pub fn with_ai_metadata(mut self, ai_metadata: ImageMetadata) -> Self {
+        self.ai_metadata = ai_metadata;
+        self.touch();
+        self
+    }
+
+    /// Add user description
+    pub fn with_user_description(mut self, description: String) -> Self {
+        self.user_description = Some(description);
+        self.touch();
+        self
+    }
+
+    /// Add user tags
+    pub fn with_user_tags(mut self, tags: Vec<String>) -> Self {
+        self.user_tags = tags;
+        self.touch();
+        self
+    }
+
+    /// Set parent node
+    pub fn with_parent(mut self, parent_id: NodeId) -> Self {
+        self.parent_id = Some(parent_id);
+        self.touch();
+        self
+    }
+
+    /// Add relationship to another node
+    pub fn add_relationship(&mut self, node_id: NodeId) {
+        if !self.relationships.contains(&node_id) {
+            self.relationships.push(node_id);
+            self.touch();
+        }
+    }
+
+    /// Remove relationship
+    pub fn remove_relationship(&mut self, node_id: &NodeId) {
+        if let Some(pos) = self.relationships.iter().position(|id| id == node_id) {
+            self.relationships.remove(pos);
+            self.touch();
+        }
+    }
+
+    /// Update the timestamp
+    pub fn touch(&mut self) {
+        self.updated_at = Utc::now();
+    }
+
+    /// Set sibling pointers
+    pub fn with_siblings(mut self, previous: Option<NodeId>, next: Option<NodeId>) -> Self {
+        self.previous_sibling = previous;
+        self.next_sibling = next;
+        self.touch();
+        self
+    }
+
+    /// Set next sibling
+    pub fn set_next_sibling(&mut self, next_sibling: Option<NodeId>) {
+        self.next_sibling = next_sibling;
+        self.touch();
+    }
+
+    /// Set previous sibling
+    pub fn set_previous_sibling(&mut self, previous_sibling: Option<NodeId>) {
+        self.previous_sibling = previous_sibling;
+        self.touch();
+    }
+
+    /// Check if this node has a next sibling
+    pub fn has_next_sibling(&self) -> bool {
+        self.next_sibling.is_some()
+    }
+
+    /// Check if this node has a previous sibling
+    pub fn has_previous_sibling(&self) -> bool {
+        self.previous_sibling.is_some()
+    }
+
+    /// Check if this node is first in sequence
+    pub fn is_first(&self) -> bool {
+        self.previous_sibling.is_none()
+    }
+
+    /// Check if this node is last in sequence
+    pub fn is_last(&self) -> bool {
+        self.next_sibling.is_none()
+    }
+
+    /// Validate ImageNode data integrity
+    pub fn validate(&self) -> NodeSpaceResult<()> {
+        // Validate required fields
+        if self.filename.is_empty() {
+            return Err(NodeSpaceError::ValidationError("Filename cannot be empty".to_string()));
+        }
+
+        if self.content_type.is_empty() {
+            return Err(NodeSpaceError::ValidationError("Content type cannot be empty".to_string()));
+        }
+
+        // Validate content type is image
+        if !self.content_type.starts_with("image/") {
+            return Err(NodeSpaceError::ValidationError(
+                format!("Invalid content type for image: {}", self.content_type)
+            ));
+        }
+
+        // Validate dimensions
+        if self.dimensions.0 == 0 || self.dimensions.1 == 0 {
+            return Err(NodeSpaceError::ValidationError("Image dimensions must be greater than 0".to_string()));
+        }
+
+        // Validate raw data
+        if self.raw_data.is_empty() {
+            return Err(NodeSpaceError::ValidationError("Image raw data cannot be empty".to_string()));
+        }
+
+        // Validate file size matches raw data if set
+        if self.file_size > 0 && self.file_size != self.raw_data.len() {
+            return Err(NodeSpaceError::ValidationError(
+                "File size does not match raw data length".to_string()
+            ));
+        }
+
+        // Validate embedding dimensions if present
+        if !self.embedding.is_empty() && self.embedding.len() != 384 {
+            return Err(NodeSpaceError::ValidationError(
+                format!("Invalid embedding dimensions: expected 384, got {}", self.embedding.len())
+            ));
+        }
+
+        // Validate GPS coordinates if present
+        if let Some((lat, lon)) = self.gps_coordinates {
+            if lat < -90.0 || lat > 90.0 {
+                return Err(NodeSpaceError::ValidationError(
+                    format!("Invalid latitude: {}", lat)
+                ));
+            }
+            if lon < -180.0 || lon > 180.0 {
+                return Err(NodeSpaceError::ValidationError(
+                    format!("Invalid longitude: {}", lon)
+                ));
+            }
+        }
+
+        // Validate node type
+        if self.node_type != NodeType::Image {
+            return Err(NodeSpaceError::ValidationError(
+                "Node type must be Image for ImageNode".to_string()
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Get a summary of the image for display purposes
+    pub fn summary(&self) -> String {
+        let mut parts = vec![
+            format!("{}x{}", self.dimensions.0, self.dimensions.1),
+            self.content_type.clone(),
+        ];
+
+        if let Some(desc) = &self.user_description {
+            parts.push(desc.clone());
+        } else if let Some(ai_desc) = &self.ai_metadata.ai_description {
+            parts.push(ai_desc.clone());
+        }
+
+        if !self.ai_metadata.detected_objects.is_empty() {
+            parts.push(format!("Objects: {}", self.ai_metadata.detected_objects.join(", ")));
+        }
+
+        parts.join(" | ")
+    }
+
+    /// Convert to a generic Node for backwards compatibility
+    pub fn to_node(&self) -> NodeSpaceResult<Node> {
+        let content = serde_json::to_value(self)
+            .map_err(|e| NodeSpaceError::SerializationError(e.to_string()))?;
+        
+        Ok(Node {
+            id: self.id.clone(),
+            content,
+            metadata: None,
+            created_at: self.created_at.to_rfc3339(),
+            updated_at: self.updated_at.to_rfc3339(),
+            parent_id: self.parent_id.clone(),
+            next_sibling: self.next_sibling.clone(),
+            previous_sibling: self.previous_sibling.clone(),
+        })
+    }
+
+    /// Create ImageNode from a generic Node
+    pub fn from_node(node: &Node) -> NodeSpaceResult<Self> {
+        serde_json::from_value(node.content.clone())
+            .map_err(|e| NodeSpaceError::SerializationError(
+                format!("Failed to deserialize ImageNode from Node: {}", e)
+            ))
     }
 }
 
@@ -519,5 +979,141 @@ mod tests {
         assert!(node.previous_sibling.is_none());
         assert!(node.is_first());
         assert!(node.is_last());
+    }
+
+    // ImageNode tests
+    #[test]
+    fn test_node_type_display() {
+        assert_eq!(NodeType::Text.to_string(), "text");
+        assert_eq!(NodeType::Image.to_string(), "image");
+        assert_eq!(NodeType::Task.to_string(), "task");
+        assert_eq!(NodeType::Custom("blog_post".to_string()).to_string(), "blog_post");
+    }
+
+    #[test]
+    fn test_node_type_default() {
+        let default_type: NodeType = Default::default();
+        assert_eq!(default_type, NodeType::Text);
+    }
+
+    #[test]
+    fn test_camera_info_creation() {
+        let camera_info = CameraInfo {
+            make: Some("Canon".to_string()),
+            model: Some("EOS R5".to_string()),
+            focal_length: Some(85.0),
+            aperture: Some(2.8),
+            iso: Some(800),
+            ..Default::default()
+        };
+
+        assert_eq!(camera_info.make, Some("Canon".to_string()));
+        assert_eq!(camera_info.model, Some("EOS R5".to_string()));
+        assert_eq!(camera_info.focal_length, Some(85.0));
+        assert_eq!(camera_info.aperture, Some(2.8));
+        assert_eq!(camera_info.iso, Some(800));
+    }
+
+    #[test]
+    fn test_image_metadata_creation() {
+        let mut confidence_scores = std::collections::HashMap::new();
+        confidence_scores.insert("object_detection".to_string(), 0.95);
+        confidence_scores.insert("scene_classification".to_string(), 0.87);
+
+        let metadata = ImageMetadata {
+            ai_description: Some("A beautiful sunset over mountains".to_string()),
+            detected_objects: vec!["mountain".to_string(), "sky".to_string(), "sunset".to_string()],
+            scene_classification: Some("landscape".to_string()),
+            keywords: vec!["nature".to_string(), "outdoor".to_string()],
+            color_palette: vec!["#FF6B35".to_string(), "#F7931E".to_string(), "#FFD23F".to_string()],
+            text_content: None,
+            faces_detected: Some(0),
+            emotions: Vec::new(),
+            confidence_scores,
+        };
+
+        assert_eq!(metadata.ai_description, Some("A beautiful sunset over mountains".to_string()));
+        assert_eq!(metadata.detected_objects.len(), 3);
+        assert_eq!(metadata.scene_classification, Some("landscape".to_string()));
+        assert_eq!(metadata.confidence_scores.get("object_detection"), Some(&0.95));
+    }
+
+    #[test]
+    fn test_image_node_creation() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header
+        let filename = "test_image.jpg".to_string();
+        let content_type = "image/jpeg".to_string();
+        let dimensions = (1920, 1080);
+
+        let image_node = ImageNode::new(raw_data.clone(), filename.clone(), content_type.clone(), dimensions);
+
+        assert_eq!(image_node.node_type, NodeType::Image);
+        assert_eq!(image_node.raw_data, raw_data);
+        assert_eq!(image_node.filename, filename);
+        assert_eq!(image_node.content_type, content_type);
+        assert_eq!(image_node.dimensions, dimensions);
+        assert!(image_node.embedding.is_empty());
+        assert!(image_node.camera_info.is_none());
+        assert!(image_node.user_description.is_none());
+        assert!(image_node.relationships.is_empty());
+    }
+
+    #[test]
+    fn test_image_node_validation_success() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9]; // Valid JPEG
+        let image_node = ImageNode::new(raw_data, "valid.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_gps_coordinates(45.0, 90.0); // Valid coordinates
+
+        assert!(image_node.validate().is_ok());
+    }
+
+    #[test]
+    fn test_image_node_validation_failures() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+
+        // Test empty filename
+        let invalid_node = ImageNode::new(raw_data.clone(), "".to_string(), "image/jpeg".to_string(), (800, 600));
+        assert!(invalid_node.validate().is_err());
+
+        // Test invalid content type
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "text/plain".to_string(), (800, 600));
+        assert!(invalid_node.validate().is_err());
+
+        // Test zero dimensions
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (0, 600));
+        assert!(invalid_node.validate().is_err());
+
+        // Test empty raw data
+        let invalid_node = ImageNode::new(vec![], "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600));
+        assert!(invalid_node.validate().is_err());
+
+        // Test invalid GPS coordinates
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_gps_coordinates(91.0, 0.0); // Invalid latitude
+        assert!(invalid_node.validate().is_err());
+
+        // Test invalid embedding dimensions
+        let invalid_embedding = vec![0.1; 256]; // Wrong size (should be 384)
+        let invalid_node = ImageNode::new(raw_data, "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_embedding(invalid_embedding);
+        assert!(invalid_node.validate().is_err());
+    }
+
+    #[test]
+    fn test_image_node_serialization() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9];
+        let image_node = ImageNode::new(raw_data, "serialize_test.jpg".to_string(), "image/jpeg".to_string(), (1024, 768))
+            .with_user_tags(vec!["test".to_string(), "serialization".to_string()]);
+
+        // Test serialization
+        let serialized = serde_json::to_string(&image_node).unwrap();
+        let deserialized: ImageNode = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(image_node.id, deserialized.id);
+        assert_eq!(image_node.filename, deserialized.filename);
+        assert_eq!(image_node.content_type, deserialized.content_type);
+        assert_eq!(image_node.dimensions, deserialized.dimensions);
+        assert_eq!(image_node.raw_data, deserialized.raw_data);
+        assert_eq!(image_node.user_tags, deserialized.user_tags);
     }
 }
