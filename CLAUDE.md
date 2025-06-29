@@ -32,7 +32,7 @@ This is `nodespace-core-types`, the **foundational types repository** for the No
 **New to NodeSpace? Start Here:**
 1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
 2. **Review [Development Workflow](../nodespace-system-design/docs/development-workflow.md)** - Process and procedures
-3. **Study [Service Contracts](../nodespace-system-design/contracts/)** - See how your types are used
+3. **See distributed service interfaces** - Services own their interface traits and import types from this repository
 4. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
 
 ## Development Setup
@@ -56,7 +56,7 @@ Since this is a Rust crate for type definitions, the primary commands are:
 # Validate all contracts compile
 cargo check
 
-# Run contract compliance tests  
+# Run type validation tests
 cargo test
 
 # Test that downstream repos can use these types
@@ -89,7 +89,7 @@ This repository sits at the foundation of the NodeSpace system architecture:
 
 **Dependency-Based Architecture**: This repository defines minimal essential types that other repositories import via Cargo dependencies. 
 
-**DO NOT copy contracts** - Service interfaces are defined in `nodespace-system-design/contracts/` and import types from this repository.
+**Distributed contract ownership** - Each service repository owns its interface traits and imports types from this repository.
 
 **Focus**: Define clean, minimal types that serve as the foundation for all other repositories.
 
