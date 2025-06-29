@@ -116,6 +116,12 @@ impl Node {
         self
     }
 
+    /// Set the parent ID
+    pub fn with_parent(mut self, parent_id: Option<NodeId>) -> Self {
+        self.parent_id = parent_id;
+        self
+    }
+
     /// Set both sibling pointers
     pub fn with_siblings(mut self, previous: Option<NodeId>, next: Option<NodeId>) -> Self {
         self.previous_sibling = previous;
