@@ -1,9 +1,27 @@
 # ⚠️ BEFORE STARTING ANY WORK
 👉 **STEP 1**: Read development workflow: `../nodespace-system-design/docs/development/workflow.md`
 👉 **STEP 2**: Check Linear for assigned tasks
-👉 **STEP 3**: Repository-specific patterns below
+👉 **STEP 3**: Follow the MANDATORY workflow checklist in CLAUDE.md
+👉 **STEP 4**: Repository-specific patterns below
 
 **This README.md only contains**: Repository-specific type definitions and Rust patterns
+
+## 🚨 QUICK WORKFLOW COMMANDS
+
+```bash
+# Validation pipeline (run before any commit/PR)
+cargo fmt && cargo clippy -- -D warnings && cargo test --package nodespace-core-types
+
+# Start new task (replace NS-XX with your issue ID)
+mcp__linear__update_issue --id "NS-XX" --stateId "d8f2b3a6-f865-4894-a6cb-a0d76fc98d93"
+git checkout -b feature/ns-XX-description
+
+# Mark for review (after PR created)
+mcp__linear__update_issue --id "NS-XX" --stateId "bfd80919-3264-4a6e-9745-7f118b9b8932"
+
+# Mark complete (ONLY after PR merged and validated)
+mcp__linear__update_issue --id "NS-XX" --stateId "2da321bf-016e-48cc-bb6a-fbdecc044bd7"
+```
 
 # NodeSpace Core Types
 

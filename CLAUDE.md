@@ -13,6 +13,27 @@ Before doing ANYTHING else, you MUST read the development workflow:
 
 **Then return here** for repository-specific guidance and architecture details.
 
+## 🚨 MANDATORY WORKFLOW VALIDATION
+
+**EVERY task MUST follow this exact checklist:**
+
+### ✅ Before Starting ANY Work:
+- [ ] Update Linear issue to "In Progress": `mcp__linear__update_issue --id "NS-XX" --stateId "d8f2b3a6-f865-4894-a6cb-a0d76fc98d93"`
+- [ ] Create feature branch: `git checkout -b feature/ns-XX-description`
+- [ ] Read the specific Linear issue description thoroughly
+
+### ✅ During Development:
+- [ ] Run linting frequently: `cargo fmt && cargo clippy -- -D warnings`
+- [ ] Run tests frequently: `cargo test --package nodespace-core-types`
+- [ ] Commit with Linear reference: `git commit -m "NS-XX: Description"`
+
+### ✅ Before Completing ANY Task:
+- [ ] **CRITICAL**: Run full validation: `cargo fmt && cargo clippy -- -D warnings && cargo test --package nodespace-core-types`
+- [ ] Push branch: `git push -u origin feature/ns-XX-description`
+- [ ] Create PR with "Resolves NS-XX" in description
+- [ ] Update Linear to "In Review": `mcp__linear__update_issue --id "NS-XX" --stateId "bfd80919-3264-4a6e-9745-7f118b9b8932"`
+- [ ] **NEVER mark "Done" until PR merged AND working**
+
 ## Project Overview
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
