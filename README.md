@@ -1,5 +1,5 @@
 # ⚠️ BEFORE STARTING ANY WORK
-👉 **STEP 1**: Read development workflow: `../nodespace-system-design/docs/development-workflow.md`
+👉 **STEP 1**: Read development workflow: `../nodespace-system-design/docs/development/workflow.md`
 👉 **STEP 2**: Check Linear for assigned tasks
 👉 **STEP 3**: Repository-specific patterns below
 
@@ -35,7 +35,7 @@ This repository has **no dependencies** on other NodeSpace repositories. All oth
 ### **New to NodeSpace? Start Here:**
 1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
 2. **Check [Linear workspace](https://linear.app/nodespace)** - Find your current tasks (filter by `nodespace-core-types`)
-3. **Review [Development Workflow](../nodespace-system-design/docs/development-workflow.md)** - Process and procedures
+3. **Review [Development Workflow](../nodespace-system-design/docs/development/workflow.md)** - Process and procedures
 4. **See distributed service interfaces** - Services own their interface traits and import types from this repository
 5. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
 
