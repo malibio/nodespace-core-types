@@ -1059,6 +1059,118 @@ mod tests {
     }
 
     #[test]
+    fn test_image_node_with_id() {
+        let custom_id = NodeId::from_string("custom-image-id".to_string());
+        let raw_data = vec![0x89, 0x50, 0x4E, 0x47]; // PNG header
+        let filename = "test_image.png".to_string();
+        let content_type = "image/png".to_string();
+        let dimensions = (800, 600);
+
+        let image_node = ImageNode::with_id(custom_id.clone(), raw_data, filename, content_type, dimensions);
+
+        assert_eq!(image_node.id, custom_id);
+        assert_eq!(image_node.node_type, NodeType::Image);
+    }
+
+    #[test]
+    fn test_image_node_builder_methods() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let filename = "builder_test.jpg".to_string();
+        let content_type = "image/jpeg".to_string();
+        let dimensions = (1024, 768);
+
+        let embedding = vec![0.1, 0.2, 0.3]; // Simplified for test
+        let camera_info = CameraInfo {
+            make: Some("Sony".to_string()),
+            model: Some("A7R IV".to_string()),
+            ..Default::default()
+        };
+
+        let mut confidence_scores = std::collections::HashMap::new();
+        confidence_scores.insert("detection".to_string(), 0.92);
+
+        let ai_metadata = ImageMetadata {
+            ai_description: Some("Test image description".to_string()),
+            detected_objects: vec!["object1".to_string(), "object2".to_string()],
+            confidence_scores,
+            ..Default::default()
+        };
+
+        let user_tags = vec!["test".to_string(), "sample".to_string()];
+
+        let image_node = ImageNode::new(raw_data.clone(), filename, content_type, dimensions)
+            .with_file_size(raw_data.len())
+            .with_embedding(embedding.clone())
+            .with_camera_info(camera_info.clone())
+            .with_gps_coordinates(37.7749, -122.4194) // San Francisco
+            .with_timestamp(Utc::now())
+            .with_ai_metadata(ai_metadata.clone())
+            .with_user_description("User-provided description".to_string())
+            .with_user_tags(user_tags.clone());
+
+        assert_eq!(image_node.file_size, raw_data.len());
+        assert_eq!(image_node.embedding, embedding);
+        assert_eq!(image_node.camera_info, Some(camera_info));
+        assert_eq!(image_node.gps_coordinates, Some((37.7749, -122.4194)));
+        assert!(image_node.timestamp.is_some());
+        assert_eq!(image_node.ai_metadata, ai_metadata);
+        assert_eq!(image_node.user_description, Some("User-provided description".to_string()));
+        assert_eq!(image_node.user_tags, user_tags);
+    }
+
+    #[test]
+    fn test_image_node_relationships() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let mut image_node = ImageNode::new(raw_data, "test.jpg".to_string(), "image/jpeg".to_string(), (640, 480));
+
+        let related_node_id = NodeId::new();
+        let another_node_id = NodeId::new();
+
+        // Test adding relationships
+        image_node.add_relationship(related_node_id.clone());
+        image_node.add_relationship(another_node_id.clone());
+        assert_eq!(image_node.relationships.len(), 2);
+        assert!(image_node.relationships.contains(&related_node_id));
+        assert!(image_node.relationships.contains(&another_node_id));
+
+        // Test adding duplicate relationship (should not be added)
+        image_node.add_relationship(related_node_id.clone());
+        assert_eq!(image_node.relationships.len(), 2);
+
+        // Test removing relationship
+        image_node.remove_relationship(&related_node_id);
+        assert_eq!(image_node.relationships.len(), 1);
+        assert!(!image_node.relationships.contains(&related_node_id));
+        assert!(image_node.relationships.contains(&another_node_id));
+    }
+
+    #[test]
+    fn test_image_node_sibling_pointers() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let mut image_node = ImageNode::new(raw_data, "test.jpg".to_string(), "image/jpeg".to_string(), (640, 480));
+
+        // Test initial state
+        assert!(image_node.is_first());
+        assert!(image_node.is_last());
+        assert!(!image_node.has_next_sibling());
+        assert!(!image_node.has_previous_sibling());
+
+        // Test setting siblings
+        let prev_id = NodeId::new();
+        let next_id = NodeId::new();
+
+        image_node.set_next_sibling(Some(next_id.clone()));
+        image_node.set_previous_sibling(Some(prev_id.clone()));
+
+        assert!(!image_node.is_first());
+        assert!(!image_node.is_last());
+        assert!(image_node.has_next_sibling());
+        assert!(image_node.has_previous_sibling());
+        assert_eq!(image_node.next_sibling, Some(next_id));
+        assert_eq!(image_node.previous_sibling, Some(prev_id));
+    }
+
+    #[test]
     fn test_image_node_validation_success() {
         let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9]; // Valid JPEG
         let image_node = ImageNode::new(raw_data, "valid.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
@@ -1075,6 +1187,9 @@ mod tests {
         let invalid_node = ImageNode::new(raw_data.clone(), "".to_string(), "image/jpeg".to_string(), (800, 600));
         assert!(invalid_node.validate().is_err());
 
+        // Test empty content type
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "".to_string(), (800, 600));
+        assert!(invalid_node.validate().is_err());
         // Test invalid content type
         let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "text/plain".to_string(), (800, 600));
         assert!(invalid_node.validate().is_err());
@@ -1083,6 +1198,8 @@ mod tests {
         let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (0, 600));
         assert!(invalid_node.validate().is_err());
 
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (800, 0));
+        assert!(invalid_node.validate().is_err());
         // Test empty raw data
         let invalid_node = ImageNode::new(vec![], "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600));
         assert!(invalid_node.validate().is_err());
@@ -1092,6 +1209,9 @@ mod tests {
             .with_gps_coordinates(91.0, 0.0); // Invalid latitude
         assert!(invalid_node.validate().is_err());
 
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_gps_coordinates(0.0, 181.0); // Invalid longitude
+        assert!(invalid_node.validate().is_err());
         // Test invalid embedding dimensions
         let invalid_embedding = vec![0.1; 256]; // Wrong size (should be 384)
         let invalid_node = ImageNode::new(raw_data, "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
@@ -1100,9 +1220,77 @@ mod tests {
     }
 
     #[test]
+    fn test_image_node_summary() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        
+        // Test with user description
+        let image_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (1920, 1080))
+            .with_user_description("My vacation photo".to_string());
+        
+        let summary = image_node.summary();
+        assert!(summary.contains("1920x1080"));
+        assert!(summary.contains("image/jpeg"));
+        assert!(summary.contains("My vacation photo"));
+
+        // Test with AI description (no user description)
+        let ai_metadata = ImageMetadata {
+            ai_description: Some("A cityscape at night".to_string()),
+            detected_objects: vec!["building".to_string(), "lights".to_string()],
+            ..Default::default()
+        };
+
+        let image_node = ImageNode::new(raw_data, "test.jpg".to_string(), "image/jpeg".to_string(), (1920, 1080))
+            .with_ai_metadata(ai_metadata);
+        
+        let summary = image_node.summary();
+        assert!(summary.contains("1920x1080"));
+        assert!(summary.contains("image/jpeg"));
+        assert!(summary.contains("A cityscape at night"));
+        assert!(summary.contains("Objects: building, lights"));
+    }
+
+    #[test]
+    fn test_image_node_to_from_node_conversion() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let camera_info = CameraInfo {
+            make: Some("Nikon".to_string()),
+            model: Some("D850".to_string()),
+            ..Default::default()
+        };
+
+        let original_image_node = ImageNode::new(raw_data, "conversion_test.jpg".to_string(), "image/jpeg".to_string(), (2048, 1536))
+            .with_camera_info(camera_info.clone())
+            .with_user_description("Conversion test image".to_string());
+
+        // Convert to Node
+        let node = original_image_node.to_node().unwrap();
+        assert_eq!(node.id, original_image_node.id);
+
+        // Convert back to ImageNode
+        let converted_image_node = ImageNode::from_node(&node).unwrap();
+        assert_eq!(converted_image_node.id, original_image_node.id);
+        assert_eq!(converted_image_node.filename, original_image_node.filename);
+        assert_eq!(converted_image_node.content_type, original_image_node.content_type);
+        assert_eq!(converted_image_node.dimensions, original_image_node.dimensions);
+        assert_eq!(converted_image_node.camera_info, original_image_node.camera_info);
+        assert_eq!(converted_image_node.user_description, original_image_node.user_description);
+    }
+
+    #[test]
     fn test_image_node_serialization() {
         let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9];
+        let mut confidence_scores = std::collections::HashMap::new();
+        confidence_scores.insert("object_detection".to_string(), 0.95);
+
+        let ai_metadata = ImageMetadata {
+            ai_description: Some("Serialization test".to_string()),
+            detected_objects: vec!["test_object".to_string()],
+            confidence_scores,
+            ..Default::default()
+        };
+
         let image_node = ImageNode::new(raw_data, "serialize_test.jpg".to_string(), "image/jpeg".to_string(), (1024, 768))
+            .with_ai_metadata(ai_metadata)
             .with_user_tags(vec!["test".to_string(), "serialization".to_string()]);
 
         // Test serialization
@@ -1114,6 +1302,53 @@ mod tests {
         assert_eq!(image_node.content_type, deserialized.content_type);
         assert_eq!(image_node.dimensions, deserialized.dimensions);
         assert_eq!(image_node.raw_data, deserialized.raw_data);
+        assert_eq!(image_node.ai_metadata, deserialized.ai_metadata);
         assert_eq!(image_node.user_tags, deserialized.user_tags);
+    }
+
+    #[test]
+    fn test_image_node_touch_updates_timestamp() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let mut image_node = ImageNode::new(raw_data, "touch_test.jpg".to_string(), "image/jpeg".to_string(), (640, 480));
+        
+        let initial_timestamp = image_node.updated_at;
+        
+        // Wait a tiny bit to ensure timestamp difference
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        
+        image_node.touch();
+        
+        assert!(image_node.updated_at > initial_timestamp);
+    }
+
+    #[test]
+    fn test_image_node_with_parent() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        let parent_id = NodeId::new();
+        
+        let image_node = ImageNode::new(raw_data, "child_image.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_parent(parent_id.clone());
+        
+        assert_eq!(image_node.parent_id, Some(parent_id));
+    }
+
+    #[test]
+    fn test_image_node_file_size_validation() {
+        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9]; // 6 bytes
+        
+        // Test with correct file size
+        let valid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_file_size(raw_data.len());
+        assert!(valid_node.validate().is_ok());
+        
+        // Test with incorrect file size
+        let invalid_node = ImageNode::new(raw_data.clone(), "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_file_size(10); // Wrong size
+        assert!(invalid_node.validate().is_err());
+        
+        // Test with zero file size (should not validate file size in this case)
+        let zero_size_node = ImageNode::new(raw_data, "test.jpg".to_string(), "image/jpeg".to_string(), (800, 600))
+            .with_file_size(0);
+        assert!(zero_size_node.validate().is_ok());
     }
 }

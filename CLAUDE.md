@@ -2,7 +2,7 @@
 
 🚨 **STOP - READ WORKFLOW FIRST** 🚨
 Before doing ANYTHING else, you MUST read the development workflow:
-1. Read: `../nodespace-system-design/docs/development-workflow.md`
+1. Read: `../nodespace-system-design/docs/development/workflow.md`
 2. Check Linear for current tasks
 3. Then return here for implementation guidance
 
@@ -25,13 +25,13 @@ This is `nodespace-core-types`, the **foundational types repository** for the No
 
 ## 🎯 FINDING YOUR NEXT TASK
 
-**See [development-workflow.md](../nodespace-system-design/docs/development-workflow.md)** for task management workflow.
+**See [development-workflow.md](../nodespace-system-design/docs/development/workflow.md)** for task management workflow.
 
 ## Getting Started
 
 **New to NodeSpace? Start Here:**
 1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
-2. **Review [Development Workflow](../nodespace-system-design/docs/development-workflow.md)** - Process and procedures
+2. **Review [Development Workflow](../nodespace-system-design/docs/development/workflow.md)** - Process and procedures
 3. **See distributed service interfaces** - Services own their interface traits and import types from this repository
 4. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
 
