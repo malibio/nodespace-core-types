@@ -182,7 +182,63 @@ impl From<&str> for NodeId {
     }
 }
 
-// Core node structure for cross-service communication
+/// Core node structure for cross-service communication
+///
+/// This structure represents the fundamental data unit in NodeSpace, supporting hierarchical
+/// organization with performance optimizations for efficient querying.
+///
+/// ## Root Hierarchy Optimization
+///
+/// The `root_id` and `root_type` fields enable efficient hierarchy queries by denormalizing
+/// the root relationship. Instead of multiple O(N) database scans to traverse up the hierarchy,
+/// nodes can be queried directly by their root with O(1) indexed lookups.
+///
+/// ### Performance Benefits
+///
+/// * **Before**: O(N × depth) multiple database queries to build hierarchy
+/// * **After**: O(1) single indexed query + O(M) memory operations  
+/// * **Expected improvement**: 10x-100x performance for hierarchical operations
+///
+/// ### Usage Pattern
+///
+/// ```rust
+/// use nodespace_core_types::{Node, NodeId};
+/// use serde_json::json;
+///
+/// // Create a date root node
+/// let date_node = Node::new(json!({"title": "Monday, June 30, 2025"}))
+///     .as_hierarchy_root("date".to_string());
+///
+/// // Create child nodes under the date (all point to same root)
+/// let child_node = Node::new(json!({"text": "Meeting notes"}))
+///     .with_root(date_node.id.clone(), "date".to_string())
+///     .with_parent(Some(date_node.id.clone()));
+///
+/// // Efficient query: Get all nodes for this date hierarchy
+/// // data_store.get_nodes_by_root(&date_node.id) // Single O(1) query!
+/// ```
+///
+/// ### Data Pattern
+///
+/// ```text
+/// // Root node points to itself
+/// Node {
+///     id: "date:2025-06-30",
+///     root_id: Some("date:2025-06-30"),  // Points to itself
+///     root_type: Some("date"),
+///     parent_id: None,  // True root
+///     // ... other fields
+/// }
+///
+/// // Child nodes all point to the same root
+/// Node {
+///     id: "text:meeting-notes",
+///     root_id: Some("date:2025-06-30"),  // Same as root!
+///     root_type: Some("date"),
+///     parent_id: Some("date:2025-06-30"),
+///     // ... other fields
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
@@ -195,6 +251,16 @@ pub struct Node {
     // Sibling pointer fields for sequential navigation
     pub next_sibling: Option<NodeId>, // → Next node in sequence (None = last)
     pub previous_sibling: Option<NodeId>, // ← Previous node in sequence (None = first)
+    /// Root hierarchy optimization for efficient queries
+    ///
+    /// Points to the hierarchy root node, enabling O(1) indexed queries instead of
+    /// multiple O(N) scans. For root nodes, this points to the node itself.
+    pub root_id: Option<NodeId>,
+    /// Root type classification for hierarchy organization
+    ///
+    /// Identifies the type of hierarchy root: "date", "project", "area", etc.
+    /// Used for targeted queries and business logic organization.
+    pub root_type: Option<String>,
 }
 
 impl Node {
@@ -215,6 +281,8 @@ impl Node {
             parent_id: None,
             next_sibling: None,
             previous_sibling: None,
+            root_id: None,
+            root_type: None,
         }
     }
 
@@ -230,6 +298,8 @@ impl Node {
             parent_id: None,
             next_sibling: None,
             previous_sibling: None,
+            root_id: None,
+            root_type: None,
         }
     }
 
@@ -410,6 +480,140 @@ impl Node {
     pub fn set_metadata_legacy(&mut self, metadata: serde_json::Value) {
         self.metadata = Some(metadata);
         self.touch();
+    }
+
+    // Root hierarchy optimization methods
+
+    /// Set root hierarchy information for efficient queries
+    ///
+    /// This method configures a node to belong to a specific hierarchy root,
+    /// enabling O(1) indexed queries instead of O(N) hierarchy traversal.
+    ///
+    /// # Arguments
+    /// * `root_id` - The NodeId of the hierarchy root
+    /// * `root_type` - Classification of the root type ("date", "project", "area", etc.)
+    ///
+    /// # Example
+    /// ```rust
+    /// use nodespace_core_types::{Node, NodeId};
+    /// use serde_json::json;
+    ///
+    /// let root_id = NodeId::from_string("date:2025-06-30".to_string());
+    /// let child = Node::new(json!({"text": "Meeting notes"}))
+    ///     .with_root(root_id, "date".to_string());
+    /// ```
+    pub fn with_root(mut self, root_id: NodeId, root_type: String) -> Self {
+        self.root_id = Some(root_id);
+        self.root_type = Some(root_type);
+        self
+    }
+
+    /// Mark this node as a hierarchy root (root_id points to itself)
+    ///
+    /// This method creates a hierarchy root node where the root_id points to the node's
+    /// own ID, establishing it as the top of a hierarchy tree for efficient querying.
+    ///
+    /// # Arguments
+    /// * `root_type` - Classification of the root type ("date", "project", "area", etc.)
+    ///
+    /// # Example
+    /// ```rust
+    /// use nodespace_core_types::Node;
+    /// use serde_json::json;
+    ///
+    /// let date_root = Node::new(json!({"title": "Monday, June 30, 2025"}))
+    ///     .as_hierarchy_root("date".to_string());
+    ///
+    /// assert!(date_root.is_hierarchy_root());
+    /// ```
+    pub fn as_hierarchy_root(mut self, root_type: String) -> Self {
+        self.root_id = Some(self.id.clone());
+        self.root_type = Some(root_type);
+        self
+    }
+
+    /// Update root hierarchy information
+    ///
+    /// This method allows updating the root optimization fields after node creation,
+    /// automatically updating the node's timestamp.
+    ///
+    /// # Arguments
+    /// * `root_id` - Optional NodeId of the hierarchy root (None to clear)
+    /// * `root_type` - Optional root type classification (None to clear)
+    pub fn set_root(&mut self, root_id: Option<NodeId>, root_type: Option<String>) {
+        self.root_id = root_id;
+        self.root_type = root_type;
+        self.touch();
+    }
+
+    /// Check if this node belongs to a hierarchy root
+    ///
+    /// Returns true if the node has root optimization information configured,
+    /// enabling efficient hierarchy queries.
+    pub fn has_root(&self) -> bool {
+        self.root_id.is_some()
+    }
+
+    /// Check if this node is itself a hierarchy root
+    ///
+    /// Returns true if this node is configured as a hierarchy root (root_id points
+    /// to itself and has no parent), making it the top of an optimized hierarchy tree.
+    pub fn is_hierarchy_root(&self) -> bool {
+        matches!((&self.root_id, &self.parent_id), (Some(root_id), None) if root_id == &self.id)
+    }
+
+    /// Get the root type for this hierarchy
+    ///
+    /// Returns the classification of the hierarchy root this node belongs to,
+    /// such as "date", "project", "area", etc.
+    pub fn get_root_type(&self) -> Option<&str> {
+        self.root_type.as_deref()
+    }
+
+    /// Check if this node belongs to a specific root type
+    ///
+    /// # Arguments
+    /// * `root_type` - The root type to check against
+    ///
+    /// # Example
+    /// ```rust
+    /// # use nodespace_core_types::Node;
+    /// # use serde_json::json;
+    /// let node = Node::new(json!({})).as_hierarchy_root("date".to_string());
+    /// assert!(node.is_root_type("date"));
+    /// assert!(!node.is_root_type("project"));
+    /// ```
+    pub fn is_root_type(&self, root_type: &str) -> bool {
+        self.root_type.as_deref() == Some(root_type)
+    }
+
+    /// Validate root_id relationship consistency
+    ///
+    /// Ensures that root_id and root_type are either both present or both absent,
+    /// preventing inconsistent optimization state.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the root information is consistent
+    /// * `Err(String)` with description if inconsistent
+    ///
+    /// # Example
+    /// ```rust
+    /// # use nodespace_core_types::Node;
+    /// # use serde_json::json;
+    /// let mut node = Node::new(json!({}));
+    /// assert!(node.validate_root_consistency().is_ok());
+    ///
+    /// // This would be invalid:
+    /// // node.root_id = Some(NodeId::new());
+    /// // node.root_type = None;
+    /// // assert!(node.validate_root_consistency().is_err());
+    /// ```
+    pub fn validate_root_consistency(&self) -> Result<(), String> {
+        match (&self.root_id, &self.root_type) {
+            (Some(_), None) => Err("root_id is set but root_type is missing".to_string()),
+            (None, Some(_)) => Err("root_type is set but root_id is missing".to_string()),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -1207,6 +1411,10 @@ pub struct ImageNode {
     // Sibling pointer fields for sequential navigation
     pub next_sibling: Option<NodeId>, // → Next image in sequence (None = last)
     pub previous_sibling: Option<NodeId>, // ← Previous image in sequence (None = first)
+
+    // Root hierarchy optimization for efficient queries
+    pub root_id: Option<NodeId>, // → Points to hierarchy root (enables O(1) queries)
+    pub root_type: Option<String>, // Root type: "date", "project", "area", etc.
 }
 
 impl ImageNode {
@@ -1239,6 +1447,8 @@ impl ImageNode {
             user_tags: Vec::new(),
             next_sibling: None,
             previous_sibling: None,
+            root_id: None,
+            root_type: None,
         }
     }
 
@@ -1272,6 +1482,8 @@ impl ImageNode {
             user_tags: Vec::new(),
             next_sibling: None,
             previous_sibling: None,
+            root_id: None,
+            root_type: None,
         }
     }
 
@@ -1534,6 +1746,8 @@ impl ImageNode {
             parent_id: self.parent_id.clone(),
             next_sibling: self.next_sibling.clone(),
             previous_sibling: self.previous_sibling.clone(),
+            root_id: self.root_id.clone(),
+            root_type: self.root_type.clone(),
         })
     }
 
@@ -2954,5 +3168,159 @@ mod tests {
         // Compatibility checks should work
         assert!(crate::compatibility::is_compatible_with("2.0"));
         assert!(crate::compatibility::is_compatible_with("2.1"));
+    }
+
+    // Root hierarchy optimization tests
+
+    #[test]
+    fn test_node_root_optimization_basic() {
+        let content = json!({"text": "Root node content"});
+        let node = Node::new(content);
+
+        // New nodes should have no root information
+        assert!(!node.has_root());
+        assert!(node.root_id.is_none());
+        assert!(node.root_type.is_none());
+        assert_eq!(node.get_root_type(), None);
+        assert!(!node.is_root_type("date"));
+    }
+
+    #[test]
+    fn test_node_with_root() {
+        let content = json!({"text": "Child node"});
+        let root_id = NodeId::from_string("date:2025-06-30".to_string());
+        let root_type = "date".to_string();
+
+        let node = Node::new(content).with_root(root_id.clone(), root_type.clone());
+
+        assert!(node.has_root());
+        assert_eq!(node.root_id, Some(root_id));
+        assert_eq!(node.root_type, Some(root_type));
+        assert_eq!(node.get_root_type(), Some("date"));
+        assert!(node.is_root_type("date"));
+        assert!(!node.is_root_type("project"));
+    }
+
+    #[test]
+    fn test_node_as_hierarchy_root() {
+        let content = json!({"date": "2025-06-30", "title": "Monday, June 30, 2025"});
+        let node = Node::new(content).as_hierarchy_root("date".to_string());
+
+        assert!(node.has_root());
+        assert_eq!(node.root_id, Some(node.id.clone()));
+        assert_eq!(node.root_type, Some("date".to_string()));
+        assert!(node.is_root_type("date"));
+
+        // For a true hierarchy root, it should have no parent
+        assert!(node.parent_id.is_none());
+        // But it won't show as hierarchy root until parent_id is explicitly None
+    }
+
+    #[test]
+    fn test_node_is_hierarchy_root() {
+        let content = json!({"date": "2025-06-30"});
+        let mut node = Node::new(content).as_hierarchy_root("date".to_string());
+
+        // Should be a hierarchy root (root_id points to itself and no parent)
+        assert!(node.is_hierarchy_root());
+
+        // If we add a parent, it's no longer a hierarchy root
+        let parent_id = NodeId::new();
+        node.set_parent_id(Some(parent_id));
+        assert!(!node.is_hierarchy_root());
+    }
+
+    #[test]
+    fn test_node_set_root() {
+        let content = json!({"text": "Test node"});
+        let mut node = Node::new(content);
+        let root_id = NodeId::from_string("project:important".to_string());
+
+        node.set_root(Some(root_id.clone()), Some("project".to_string()));
+
+        assert!(node.has_root());
+        assert_eq!(node.root_id, Some(root_id));
+        assert_eq!(node.root_type, Some("project".to_string()));
+
+        // Clear root information
+        node.set_root(None, None);
+        assert!(!node.has_root());
+        assert!(node.root_id.is_none());
+        assert!(node.root_type.is_none());
+    }
+
+    #[test]
+    fn test_root_consistency_validation() {
+        let content = json!({"text": "Test node"});
+        let mut node = Node::new(content);
+
+        // Valid states
+        assert!(node.validate_root_consistency().is_ok()); // Both None
+
+        node.set_root(Some(NodeId::new()), Some("date".to_string()));
+        assert!(node.validate_root_consistency().is_ok()); // Both Some
+
+        // Invalid states
+        node.root_id = Some(NodeId::new());
+        node.root_type = None;
+        assert!(node.validate_root_consistency().is_err());
+        assert_eq!(
+            node.validate_root_consistency().unwrap_err(),
+            "root_id is set but root_type is missing"
+        );
+
+        node.root_id = None;
+        node.root_type = Some("date".to_string());
+        assert!(node.validate_root_consistency().is_err());
+        assert_eq!(
+            node.validate_root_consistency().unwrap_err(),
+            "root_type is set but root_id is missing"
+        );
+    }
+
+    #[test]
+    fn test_root_optimization_serialization() {
+        let content = json!({"text": "Serialization test"});
+        let root_id = NodeId::from_string("area:work".to_string());
+        let node = Node::new(content).with_root(root_id.clone(), "area".to_string());
+
+        // Serialize and deserialize
+        let serialized = serde_json::to_string(&node).unwrap();
+        let deserialized: Node = serde_json::from_str(&serialized).unwrap();
+
+        // Root information should be preserved
+        assert_eq!(node.root_id, deserialized.root_id);
+        assert_eq!(node.root_type, deserialized.root_type);
+        assert_eq!(deserialized.root_id, Some(root_id));
+        assert_eq!(deserialized.root_type, Some("area".to_string()));
+    }
+
+    #[test]
+    fn test_date_hierarchy_pattern() {
+        // Simulate the date hierarchy pattern from the Linear issue
+        let date_id = NodeId::from_string("date:2025-06-30".to_string());
+
+        // Create date root node
+        let date_node = Node::new(json!({"title": "Monday, June 30, 2025"}))
+            .as_hierarchy_root("date".to_string());
+
+        assert!(date_node.is_hierarchy_root());
+        assert_eq!(date_node.root_id, Some(date_node.id.clone()));
+        assert_eq!(date_node.root_type, Some("date".to_string()));
+
+        // Create child nodes under the date
+        let meeting_node = Node::new(json!({"text": "Sprint planning..."}))
+            .with_root(date_id.clone(), "date".to_string())
+            .with_parent(Some(date_id.clone()));
+
+        assert!(!meeting_node.is_hierarchy_root());
+        assert!(meeting_node.has_root());
+        assert_eq!(meeting_node.root_id, Some(date_id.clone()));
+        assert_eq!(meeting_node.root_type, Some("date".to_string()));
+        assert!(meeting_node.is_root_type("date"));
+
+        // Validation should pass for both nodes
+        assert!(date_node.validate_root_consistency().is_ok());
+        assert!(meeting_node.validate_root_consistency().is_ok());
     }
 }
