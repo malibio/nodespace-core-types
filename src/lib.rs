@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::time::Duration;
 use uuid::Uuid;
 
 // NodeId - database-agnostic unique identifier
@@ -204,51 +205,520 @@ impl RelationshipRef {
     }
 }
 
-// Comprehensive error type for NodeSpace operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum NodeSpaceError {
-    // Data access errors
-    DatabaseError(String),
-    NotFound(String),
+// Database-specific errors with structured context
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
+pub enum DatabaseError {
+    #[error("Connection failed to {database}: {reason}")]
+    ConnectionFailed {
+        database: String,
+        reason: String,
+        retry_after: Option<Duration>,
+    },
 
-    // Validation errors
-    ValidationError(String),
-    InvalidData(String),
+    #[error("Query timeout after {seconds}s: {query}")]
+    QueryTimeout {
+        seconds: u64,
+        query: String,
+        suggested_limit: Option<usize>,
+    },
 
-    // Network/IO errors
-    NetworkError(String),
-    IoError(String),
+    #[error("Record not found: {entity_type} with id {id}")]
+    NotFound {
+        entity_type: String,
+        id: String,
+        suggestions: Vec<String>,
+    },
 
-    // Processing errors
-    ProcessingError(String),
-    SerializationError(String),
+    #[error("Constraint violation: {constraint} on {table}")]
+    ConstraintViolation {
+        constraint: String,
+        table: String,
+        conflicting_value: String,
+    },
 
-    // System errors
-    ConfigurationError(String),
-    InternalError(String),
+    #[error("Migration failed: {version} -> {target_version}: {reason}")]
+    MigrationFailed {
+        version: String,
+        target_version: String,
+        reason: String,
+        rollback_available: bool,
+    },
+
+    #[error("Transaction failed: {operation}")]
+    TransactionFailed {
+        operation: String,
+        reason: String,
+        can_retry: bool,
+    },
+
+    #[error("Index corruption detected: {index_name}")]
+    IndexCorruption {
+        index_name: String,
+        table: String,
+        repair_command: Option<String>,
+    },
 }
 
-impl fmt::Display for NodeSpaceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NodeSpaceError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
-            NodeSpaceError::NotFound(msg) => write!(f, "Not found: {}", msg),
-            NodeSpaceError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
-            NodeSpaceError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
-            NodeSpaceError::NetworkError(msg) => write!(f, "Network error: {}", msg),
-            NodeSpaceError::IoError(msg) => write!(f, "IO error: {}", msg),
-            NodeSpaceError::ProcessingError(msg) => write!(f, "Processing error: {}", msg),
-            NodeSpaceError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
-            NodeSpaceError::ConfigurationError(msg) => write!(f, "Configuration error: {}", msg),
-            NodeSpaceError::InternalError(msg) => write!(f, "Internal error: {}", msg),
+// Validation errors with field-specific context
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
+pub enum ValidationError {
+    #[error("Required field missing: {field} in {context}")]
+    RequiredFieldMissing {
+        field: String,
+        context: String,
+        suggestion: Option<String>,
+    },
+
+    #[error("Invalid format for {field}: expected {expected}, got {actual}")]
+    InvalidFormat {
+        field: String,
+        expected: String,
+        actual: String,
+        examples: Vec<String>,
+    },
+
+    #[error("Value out of range for {field}: {value} not in [{min}, {max}]")]
+    OutOfRange {
+        field: String,
+        value: String,
+        min: String,
+        max: String,
+    },
+
+    #[error("Invalid relationship: {source_type} cannot reference {target_type}")]
+    InvalidRelationship {
+        source_type: String,
+        target_type: String,
+        allowed_types: Vec<String>,
+    },
+
+    #[error("Schema validation failed: {schema_path}")]
+    SchemaValidationFailed {
+        schema_path: String,
+        violations: Vec<String>,
+        schema_version: String,
+    },
+
+    #[error("Business rule violation: {rule}")]
+    BusinessRuleViolation {
+        rule: String,
+        context: serde_json::Value,
+        resolution_steps: Vec<String>,
+    },
+}
+
+// Network errors with retry and recovery guidance
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
+pub enum NetworkError {
+    #[error("Connection timeout to {endpoint} after {timeout_ms}ms")]
+    ConnectionTimeout {
+        endpoint: String,
+        timeout_ms: u64,
+        retry_after: Option<Duration>,
+        max_retries: u32,
+    },
+
+    #[error("DNS resolution failed for {hostname}")]
+    DnsResolutionFailed {
+        hostname: String,
+        dns_servers: Vec<String>,
+        fallback_endpoints: Vec<String>,
+    },
+
+    #[error("HTTP error {status_code}: {reason}")]
+    HttpError {
+        status_code: u16,
+        reason: String,
+        endpoint: String,
+        headers: std::collections::HashMap<String, String>,
+        retryable: bool,
+    },
+
+    #[error("TLS/SSL error: {reason}")]
+    TlsError {
+        reason: String,
+        certificate_info: Option<String>,
+        suggested_action: String,
+    },
+
+    #[error("Rate limit exceeded: {limit} requests per {window}")]
+    RateLimitExceeded {
+        limit: u32,
+        window: String,
+        reset_time: DateTime<Utc>,
+        retry_after: Duration,
+    },
+
+    #[error("Network unreachable: {network}")]
+    NetworkUnreachable {
+        network: String,
+        interface: Option<String>,
+        routing_table: Vec<String>,
+    },
+}
+
+// Processing errors with service attribution
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
+pub enum ProcessingError {
+    #[error("AI model error in {service}: {model_name} - {reason}")]
+    ModelError {
+        service: String,
+        model_name: String,
+        reason: String,
+        model_version: Option<String>,
+        fallback_available: bool,
+    },
+
+    #[error("Embedding generation failed: {reason}")]
+    EmbeddingFailed {
+        reason: String,
+        input_type: String,
+        dimensions: Option<usize>,
+        model_info: Option<String>,
+    },
+
+    #[error("Vector search failed: {reason}")]
+    VectorSearchFailed {
+        reason: String,
+        index_name: String,
+        query_dimensions: usize,
+        similarity_threshold: Option<f32>,
+    },
+
+    #[error("Workflow execution failed: {workflow_id} at step {step}")]
+    WorkflowFailed {
+        workflow_id: String,
+        step: String,
+        reason: String,
+        can_resume: bool,
+        checkpoint_available: bool,
+    },
+
+    #[error("Resource exhausted: {resource_type}")]
+    ResourceExhausted {
+        resource_type: String,
+        current_usage: String,
+        limit: String,
+        suggested_action: String,
+    },
+
+    #[error("Serialization failed: {format} - {reason}")]
+    SerializationFailed {
+        format: String,
+        reason: String,
+        data_type: String,
+        fallback_formats: Vec<String>,
+    },
+}
+
+// Cross-service errors for distributed debugging
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
+pub enum ServiceError {
+    #[error("Service unavailable: {service_name}")]
+    ServiceUnavailable {
+        service_name: String,
+        endpoint: String,
+        health_check_url: Option<String>,
+        estimated_recovery: Option<Duration>,
+    },
+
+    #[error("Service version mismatch: {service} expected {expected}, got {actual}")]
+    VersionMismatch {
+        service: String,
+        expected: String,
+        actual: String,
+        compatibility_matrix: Vec<String>,
+    },
+
+    #[error("Configuration error in {service}: {config_key}")]
+    ConfigurationError {
+        service: String,
+        config_key: String,
+        expected_type: String,
+        current_value: Option<String>,
+        valid_values: Vec<String>,
+    },
+
+    #[error("Circuit breaker open for {service}: {failure_count} failures")]
+    CircuitBreakerOpen {
+        service: String,
+        failure_count: u32,
+        failure_threshold: u32,
+        reset_time: DateTime<Utc>,
+    },
+
+    #[error("Authentication failed for service {service}: {reason}")]
+    AuthenticationFailed {
+        service: String,
+        reason: String,
+        auth_type: String,
+        renewal_required: bool,
+    },
+
+    #[error("Service capacity exceeded: {service}")]
+    CapacityExceeded {
+        service: String,
+        current_load: f32,
+        max_capacity: f32,
+        queue_length: Option<u32>,
+    },
+}
+
+// Top-level hierarchical error system
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
+pub enum NodeSpaceError {
+    #[error("Database operation failed: {0}")]
+    Database(#[from] DatabaseError),
+
+    #[error("Validation failed: {0}")]
+    Validation(#[from] ValidationError),
+
+    #[error("Network operation failed: {0}")]
+    Network(#[from] NetworkError),
+
+    #[error("Processing failed: {0}")]
+    Processing(#[from] ProcessingError),
+
+    #[error("Service error: {0}")]
+    Service(#[from] ServiceError),
+
+    // Legacy compatibility variants (will be deprecated)
+    #[error("IO error: {message}")]
+    IoError { message: String },
+
+    #[error("Internal error: {message} (service: {service})")]
+    InternalError { message: String, service: String },
+}
+
+// Standard Result type for all NodeSpace operations
+pub type NodeSpaceResult<T> = Result<T, NodeSpaceError>;
+
+// Convenience constructors for common error scenarios
+impl DatabaseError {
+    pub fn connection_failed(database: &str, reason: &str) -> Self {
+        Self::ConnectionFailed {
+            database: database.to_string(),
+            reason: reason.to_string(),
+            retry_after: Some(Duration::from_secs(5)),
+        }
+    }
+
+    pub fn not_found(entity_type: &str, id: &str) -> Self {
+        Self::NotFound {
+            entity_type: entity_type.to_string(),
+            id: id.to_string(),
+            suggestions: vec![],
+        }
+    }
+
+    pub fn query_timeout(query: &str, seconds: u64) -> Self {
+        Self::QueryTimeout {
+            seconds,
+            query: query.to_string(),
+            suggested_limit: Some(1000),
         }
     }
 }
 
-impl std::error::Error for NodeSpaceError {}
+impl ValidationError {
+    pub fn required_field(field: &str, context: &str) -> Self {
+        Self::RequiredFieldMissing {
+            field: field.to_string(),
+            context: context.to_string(),
+            suggestion: Some(format!("Please provide a value for '{}'", field)),
+        }
+    }
 
-// Standard Result type for all NodeSpace operations
-pub type NodeSpaceResult<T> = Result<T, NodeSpaceError>;
+    pub fn invalid_format(field: &str, expected: &str, actual: &str) -> Self {
+        Self::InvalidFormat {
+            field: field.to_string(),
+            expected: expected.to_string(),
+            actual: actual.to_string(),
+            examples: vec![],
+        }
+    }
+
+    pub fn out_of_range(field: &str, value: &str, min: &str, max: &str) -> Self {
+        Self::OutOfRange {
+            field: field.to_string(),
+            value: value.to_string(),
+            min: min.to_string(),
+            max: max.to_string(),
+        }
+    }
+}
+
+impl NetworkError {
+    pub fn connection_timeout(endpoint: &str, timeout_ms: u64) -> Self {
+        Self::ConnectionTimeout {
+            endpoint: endpoint.to_string(),
+            timeout_ms,
+            retry_after: Some(Duration::from_secs(1)),
+            max_retries: 3,
+        }
+    }
+
+    pub fn http_error(status_code: u16, reason: &str, endpoint: &str) -> Self {
+        Self::HttpError {
+            status_code,
+            reason: reason.to_string(),
+            endpoint: endpoint.to_string(),
+            headers: std::collections::HashMap::new(),
+            retryable: matches!(status_code, 500..=599),
+        }
+    }
+
+    pub fn rate_limit_exceeded(limit: u32, window: &str, reset_time: DateTime<Utc>) -> Self {
+        Self::RateLimitExceeded {
+            limit,
+            window: window.to_string(),
+            reset_time,
+            retry_after: Duration::from_secs(60),
+        }
+    }
+}
+
+impl ProcessingError {
+    pub fn model_error(service: &str, model_name: &str, reason: &str) -> Self {
+        Self::ModelError {
+            service: service.to_string(),
+            model_name: model_name.to_string(),
+            reason: reason.to_string(),
+            model_version: None,
+            fallback_available: false,
+        }
+    }
+
+    pub fn embedding_failed(reason: &str, input_type: &str) -> Self {
+        Self::EmbeddingFailed {
+            reason: reason.to_string(),
+            input_type: input_type.to_string(),
+            dimensions: Some(384),
+            model_info: None,
+        }
+    }
+
+    pub fn vector_search_failed(reason: &str, index_name: &str, query_dimensions: usize) -> Self {
+        Self::VectorSearchFailed {
+            reason: reason.to_string(),
+            index_name: index_name.to_string(),
+            query_dimensions,
+            similarity_threshold: Some(0.7),
+        }
+    }
+}
+
+impl ServiceError {
+    pub fn service_unavailable(service_name: &str, endpoint: &str) -> Self {
+        Self::ServiceUnavailable {
+            service_name: service_name.to_string(),
+            endpoint: endpoint.to_string(),
+            health_check_url: None,
+            estimated_recovery: Some(Duration::from_secs(30)),
+        }
+    }
+
+    pub fn version_mismatch(service: &str, expected: &str, actual: &str) -> Self {
+        Self::VersionMismatch {
+            service: service.to_string(),
+            expected: expected.to_string(),
+            actual: actual.to_string(),
+            compatibility_matrix: vec![],
+        }
+    }
+
+    pub fn configuration_error(service: &str, config_key: &str, expected_type: &str) -> Self {
+        Self::ConfigurationError {
+            service: service.to_string(),
+            config_key: config_key.to_string(),
+            expected_type: expected_type.to_string(),
+            current_value: None,
+            valid_values: vec![],
+        }
+    }
+}
+
+impl NodeSpaceError {
+    // Legacy compatibility constructors (deprecated)
+    #[deprecated(note = "Use specific error types instead")]
+    pub fn database_error(msg: &str) -> Self {
+        Self::Database(DatabaseError::connection_failed("unknown", msg))
+    }
+
+    #[deprecated(note = "Use DatabaseError::not_found instead")]
+    pub fn not_found(msg: &str) -> Self {
+        Self::Database(DatabaseError::not_found("unknown", msg))
+    }
+
+    #[deprecated(note = "Use ValidationError::required_field instead")]
+    pub fn validation_error(msg: &str) -> Self {
+        Self::Validation(ValidationError::required_field("unknown", msg))
+    }
+
+    // Utility methods for error analysis
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Database(DatabaseError::TransactionFailed { can_retry, .. }) => *can_retry,
+            Self::Network(NetworkError::HttpError { retryable, .. }) => *retryable,
+            Self::Network(NetworkError::ConnectionTimeout { .. }) => true,
+            Self::Network(NetworkError::RateLimitExceeded { .. }) => true,
+            Self::Processing(ProcessingError::ModelError {
+                fallback_available, ..
+            }) => *fallback_available,
+            Self::Service(ServiceError::ServiceUnavailable { .. }) => true,
+            Self::Service(ServiceError::CircuitBreakerOpen { .. }) => false,
+            _ => false,
+        }
+    }
+
+    pub fn service_attribution(&self) -> Option<String> {
+        match self {
+            Self::Processing(ProcessingError::ModelError { service, .. }) => Some(service.clone()),
+            Self::Service(ServiceError::ServiceUnavailable { service_name, .. }) => {
+                Some(service_name.clone())
+            }
+            Self::Service(ServiceError::VersionMismatch { service, .. }) => Some(service.clone()),
+            Self::Service(ServiceError::ConfigurationError { service, .. }) => {
+                Some(service.clone())
+            }
+            Self::Service(ServiceError::CircuitBreakerOpen { service, .. }) => {
+                Some(service.clone())
+            }
+            Self::Service(ServiceError::AuthenticationFailed { service, .. }) => {
+                Some(service.clone())
+            }
+            Self::Service(ServiceError::CapacityExceeded { service, .. }) => Some(service.clone()),
+            Self::InternalError { service, .. } => Some(service.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::Database(DatabaseError::ConnectionFailed { retry_after, .. }) => *retry_after,
+            Self::Network(NetworkError::ConnectionTimeout { retry_after, .. }) => *retry_after,
+            Self::Network(NetworkError::RateLimitExceeded { retry_after, .. }) => {
+                Some(*retry_after)
+            }
+            Self::Service(ServiceError::ServiceUnavailable {
+                estimated_recovery, ..
+            }) => *estimated_recovery,
+            _ => None,
+        }
+    }
+
+    pub fn error_category(&self) -> &'static str {
+        match self {
+            Self::Database(_) => "database",
+            Self::Validation(_) => "validation",
+            Self::Network(_) => "network",
+            Self::Processing(_) => "processing",
+            Self::Service(_) => "service",
+            Self::IoError { .. } => "io",
+            Self::InternalError { .. } => "internal",
+        }
+    }
+}
 
 // Additional utility types for common patterns
 
@@ -582,75 +1052,91 @@ impl ImageNode {
     pub fn validate(&self) -> NodeSpaceResult<()> {
         // Validate required fields
         if self.filename.is_empty() {
-            return Err(NodeSpaceError::ValidationError(
-                "Filename cannot be empty".to_string(),
-            ));
+            return Err(ValidationError::required_field("filename", "ImageNode").into());
         }
 
         if self.content_type.is_empty() {
-            return Err(NodeSpaceError::ValidationError(
-                "Content type cannot be empty".to_string(),
-            ));
+            return Err(ValidationError::required_field("content_type", "ImageNode").into());
         }
 
         // Validate content type is image
         if !self.content_type.starts_with("image/") {
-            return Err(NodeSpaceError::ValidationError(format!(
-                "Invalid content type for image: {}",
-                self.content_type
-            )));
+            return Err(ValidationError::invalid_format(
+                "content_type",
+                "image/*",
+                &self.content_type,
+            )
+            .into());
         }
 
         // Validate dimensions
         if self.dimensions.0 == 0 || self.dimensions.1 == 0 {
-            return Err(NodeSpaceError::ValidationError(
-                "Image dimensions must be greater than 0".to_string(),
-            ));
+            return Err(ValidationError::out_of_range(
+                "dimensions",
+                &format!("{}x{}", self.dimensions.0, self.dimensions.1),
+                "1",
+                "unlimited",
+            )
+            .into());
         }
 
         // Validate raw data
         if self.raw_data.is_empty() {
-            return Err(NodeSpaceError::ValidationError(
-                "Image raw data cannot be empty".to_string(),
-            ));
+            return Err(ValidationError::required_field("raw_data", "ImageNode").into());
         }
 
         // Validate file size matches raw data if set
         if self.file_size > 0 && self.file_size != self.raw_data.len() {
-            return Err(NodeSpaceError::ValidationError(
-                "File size does not match raw data length".to_string(),
-            ));
+            return Err(ValidationError::InvalidFormat {
+                field: "file_size".to_string(),
+                expected: self.raw_data.len().to_string(),
+                actual: self.file_size.to_string(),
+                examples: vec!["Use raw_data.len() to set correct file_size".to_string()],
+            }
+            .into());
         }
 
         // Validate embedding dimensions if present
         if !self.embedding.is_empty() && self.embedding.len() != 384 {
-            return Err(NodeSpaceError::ValidationError(format!(
-                "Invalid embedding dimensions: expected 384, got {}",
-                self.embedding.len()
-            )));
+            return Err(ValidationError::out_of_range(
+                "embedding.len()",
+                &self.embedding.len().to_string(),
+                "384",
+                "384",
+            )
+            .into());
         }
 
         // Validate GPS coordinates if present
         if let Some((lat, lon)) = self.gps_coordinates {
             if !(-90.0..=90.0).contains(&lat) {
-                return Err(NodeSpaceError::ValidationError(format!(
-                    "Invalid latitude: {}",
-                    lat
-                )));
+                return Err(ValidationError::out_of_range(
+                    "latitude",
+                    &lat.to_string(),
+                    "-90.0",
+                    "90.0",
+                )
+                .into());
             }
             if !(-180.0..=180.0).contains(&lon) {
-                return Err(NodeSpaceError::ValidationError(format!(
-                    "Invalid longitude: {}",
-                    lon
-                )));
+                return Err(ValidationError::out_of_range(
+                    "longitude",
+                    &lon.to_string(),
+                    "-180.0",
+                    "180.0",
+                )
+                .into());
             }
         }
 
         // Validate node type
         if self.node_type != NodeType::Image {
-            return Err(NodeSpaceError::ValidationError(
-                "Node type must be Image for ImageNode".to_string(),
-            ));
+            return Err(ValidationError::invalid_format(
+                "node_type",
+                "NodeType::Image",
+                &format!("{:?}", self.node_type),
+            )
+            .into());
         }
 
         Ok(())
@@ -681,8 +1167,13 @@ impl ImageNode {
 
     /// Convert to a generic Node for backwards compatibility
     pub fn to_node(&self) -> NodeSpaceResult<Node> {
-        let content = serde_json::to_value(self)
-            .map_err(|e| NodeSpaceError::SerializationError(e.to_string()))?;
+        let content =
+            serde_json::to_value(self).map_err(|e| ProcessingError::SerializationFailed {
+                format: "JSON".to_string(),
+                reason: e.to_string(),
+                data_type: "ImageNode".to_string(),
+                fallback_formats: vec!["MessagePack".to_string(), "CBOR".to_string()],
+            })?;
 
         Ok(Node {
             id: self.id.clone(),
@@ -699,10 +1190,13 @@ impl ImageNode {
     /// Create ImageNode from a generic Node
     pub fn from_node(node: &Node) -> NodeSpaceResult<Self> {
         serde_json::from_value(node.content.clone()).map_err(|e| {
-            NodeSpaceError::SerializationError(format!(
-                "Failed to deserialize ImageNode from Node: {}",
-                e
-            ))
+            ProcessingError::SerializationFailed {
+                format: "JSON".to_string(),
+                reason: format!("Failed to deserialize ImageNode from Node: {}", e),
+                data_type: "ImageNode".to_string(),
+                fallback_formats: vec!["Direct field access".to_string()],
+            }
+            .into()
         })
     }
 }
@@ -771,11 +1265,20 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let error = NodeSpaceError::DatabaseError("Connection failed".to_string());
-        assert_eq!(error.to_string(), "Database error: Connection failed");
+        let error = NodeSpaceError::Database(DatabaseError::connection_failed(
+            "postgres",
+            "Connection failed",
+        ));
+        assert_eq!(
+            error.to_string(),
+            "Database operation failed: Connection failed to postgres: Connection failed"
+        );
 
-        let error = NodeSpaceError::NotFound("User not found".to_string());
-        assert_eq!(error.to_string(), "Not found: User not found");
+        let error = NodeSpaceError::Database(DatabaseError::not_found("User", "user-123"));
+        assert_eq!(
+            error.to_string(),
+            "Database operation failed: Record not found: User with id user-123"
+        );
     }
 
     #[test]
@@ -812,7 +1315,7 @@ mod tests {
         assert!(success.is_ok());
 
         let error: NodeSpaceResult<String> =
-            Err(NodeSpaceError::ValidationError("Invalid input".to_string()));
+            Err(ValidationError::required_field("input", "test").into());
         assert!(error.is_err());
     }
 
@@ -1476,5 +1979,251 @@ mod tests {
         )
         .with_file_size(0);
         assert!(zero_size_node.validate().is_ok());
+    }
+
+    // Hierarchical Error System Tests
+    #[test]
+    fn test_database_error_creation() {
+        let error = DatabaseError::connection_failed("postgres", "Connection refused");
+        assert!(matches!(error, DatabaseError::ConnectionFailed { .. }));
+        assert_eq!(
+            error.to_string(),
+            "Connection failed to postgres: Connection refused"
+        );
+
+        let error = DatabaseError::not_found("User", "user-123");
+        assert!(matches!(error, DatabaseError::NotFound { .. }));
+        assert_eq!(error.to_string(), "Record not found: User with id user-123");
+    }
+
+    #[test]
+    fn test_validation_error_creation() {
+        let error = ValidationError::required_field("email", "User registration");
+        assert!(matches!(
+            error,
+            ValidationError::RequiredFieldMissing { .. }
+        ));
+        assert_eq!(
+            error.to_string(),
+            "Required field missing: email in User registration"
+        );
+
+        let error = ValidationError::invalid_format("email", "user@domain.com", "invalid-email");
+        assert!(matches!(error, ValidationError::InvalidFormat { .. }));
+        assert_eq!(
+            error.to_string(),
+            "Invalid format for email: expected user@domain.com, got invalid-email"
+        );
+    }
+
+    #[test]
+    fn test_network_error_creation() {
+        let error = NetworkError::connection_timeout("https://api.example.com", 5000);
+        assert!(matches!(error, NetworkError::ConnectionTimeout { .. }));
+        assert_eq!(
+            error.to_string(),
+            "Connection timeout to https://api.example.com after 5000ms"
+        );
+
+        let error = NetworkError::http_error(404, "Not Found", "/api/users/123");
+        assert!(matches!(error, NetworkError::HttpError { .. }));
+        assert_eq!(error.to_string(), "HTTP error 404: Not Found");
+    }
+
+    #[test]
+    fn test_processing_error_creation() {
+        let error = ProcessingError::model_error("nlp-engine", "mistral-7b", "Out of memory");
+        assert!(matches!(error, ProcessingError::ModelError { .. }));
+        assert_eq!(
+            error.to_string(),
+            "AI model error in nlp-engine: mistral-7b - Out of memory"
+        );
+
+        let error = ProcessingError::embedding_failed("Invalid input format", "text");
+        assert!(matches!(error, ProcessingError::EmbeddingFailed { .. }));
+        assert_eq!(
+            error.to_string(),
+            "Embedding generation failed: Invalid input format"
+        );
+    }
+
+    #[test]
+    fn test_service_error_creation() {
+        let error = ServiceError::service_unavailable("data-store", "http://localhost:8080");
+        assert!(matches!(error, ServiceError::ServiceUnavailable { .. }));
+        assert_eq!(error.to_string(), "Service unavailable: data-store");
+
+        let error = ServiceError::version_mismatch("core-logic", "2.0.0", "1.5.0");
+        assert!(matches!(error, ServiceError::VersionMismatch { .. }));
+        assert_eq!(
+            error.to_string(),
+            "Service version mismatch: core-logic expected 2.0.0, got 1.5.0"
+        );
+    }
+
+    #[test]
+    fn test_nodespace_error_hierarchy() {
+        let db_error = DatabaseError::connection_failed("postgres", "timeout");
+        let ns_error: NodeSpaceError = db_error.into();
+        assert!(matches!(ns_error, NodeSpaceError::Database(_)));
+
+        let validation_error = ValidationError::required_field("name", "User");
+        let ns_error: NodeSpaceError = validation_error.into();
+        assert!(matches!(ns_error, NodeSpaceError::Validation(_)));
+
+        let network_error = NetworkError::connection_timeout("api.test.com", 1000);
+        let ns_error: NodeSpaceError = network_error.into();
+        assert!(matches!(ns_error, NodeSpaceError::Network(_)));
+    }
+
+    #[test]
+    fn test_error_utility_methods() {
+        // Test retryable analysis
+        let retryable_error =
+            NodeSpaceError::Network(NetworkError::connection_timeout("api.test.com", 1000));
+        assert!(retryable_error.is_retryable());
+
+        let non_retryable_error = NodeSpaceError::Service(ServiceError::CircuitBreakerOpen {
+            service: "test".to_string(),
+            failure_count: 5,
+            failure_threshold: 3,
+            reset_time: Utc::now(),
+        });
+        assert!(!non_retryable_error.is_retryable());
+
+        // Test service attribution
+        let service_error = NodeSpaceError::Processing(ProcessingError::model_error(
+            "nlp-engine",
+            "test-model",
+            "error",
+        ));
+        assert_eq!(
+            service_error.service_attribution(),
+            Some("nlp-engine".to_string())
+        );
+
+        // Test error category
+        assert_eq!(retryable_error.error_category(), "network");
+        assert_eq!(service_error.error_category(), "processing");
+    }
+
+    #[test]
+    fn test_error_retry_after() {
+        let error_with_retry = NodeSpaceError::Network(NetworkError::RateLimitExceeded {
+            limit: 100,
+            window: "hour".to_string(),
+            reset_time: Utc::now(),
+            retry_after: Duration::from_secs(3600),
+        });
+        assert_eq!(
+            error_with_retry.retry_after(),
+            Some(Duration::from_secs(3600))
+        );
+
+        let error_without_retry =
+            NodeSpaceError::Validation(ValidationError::required_field("test", "context"));
+        assert_eq!(error_without_retry.retry_after(), None);
+    }
+
+    #[test]
+    fn test_error_serialization() {
+        let error = NodeSpaceError::Database(DatabaseError::ConnectionFailed {
+            database: "test_db".to_string(),
+            reason: "Network error".to_string(),
+            retry_after: Some(Duration::from_secs(5)),
+        });
+
+        // Test serialization
+        let serialized = serde_json::to_string(&error).unwrap();
+        let deserialized: NodeSpaceError = serde_json::from_str(&serialized).unwrap();
+
+        match (&error, &deserialized) {
+            (NodeSpaceError::Database(orig), NodeSpaceError::Database(deser)) => {
+                assert_eq!(format!("{}", orig), format!("{}", deser));
+            }
+            _ => panic!("Serialization changed error type"),
+        }
+    }
+
+    #[test]
+    fn test_legacy_compatibility() {
+        // Test that legacy constructors still work but are deprecated
+        #[allow(deprecated)]
+        let legacy_error = NodeSpaceError::database_error("test error");
+        assert!(matches!(legacy_error, NodeSpaceError::Database(_)));
+
+        #[allow(deprecated)]
+        let legacy_not_found = NodeSpaceError::not_found("item not found");
+        assert!(matches!(legacy_not_found, NodeSpaceError::Database(_)));
+    }
+
+    #[test]
+    fn test_detailed_error_context() {
+        // Test that new errors provide much more context than legacy ones
+        let detailed_error = NetworkError::HttpError {
+            status_code: 429,
+            reason: "Rate limit exceeded".to_string(),
+            endpoint: "/api/v1/users".to_string(),
+            headers: {
+                let mut headers = std::collections::HashMap::new();
+                headers.insert("X-RateLimit-Remaining".to_string(), "0".to_string());
+                headers.insert("X-RateLimit-Reset".to_string(), "1640995200".to_string());
+                headers
+            },
+            retryable: true,
+        };
+
+        let error_string = detailed_error.to_string();
+        assert!(error_string.contains("429"));
+        assert!(error_string.contains("Rate limit exceeded"));
+
+        // Access fields via pattern matching
+        match detailed_error {
+            NetworkError::HttpError {
+                retryable, headers, ..
+            } => {
+                assert!(retryable);
+                assert!(!headers.is_empty());
+            }
+            _ => panic!("Expected HttpError variant"),
+        }
+    }
+
+    #[test]
+    fn test_error_chaining() {
+        // Test that errors chain properly with ? operator
+        fn test_function() -> NodeSpaceResult<String> {
+            let _db_result = Err(DatabaseError::connection_failed("test", "failed"))?;
+            Ok("success".to_string())
+        }
+
+        let result = test_function();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), NodeSpaceError::Database(_)));
+    }
+
+    #[test]
+    fn test_structured_error_fields() {
+        let validation_error = ValidationError::OutOfRange {
+            field: "age".to_string(),
+            value: "150".to_string(),
+            min: "0".to_string(),
+            max: "120".to_string(),
+        };
+
+        match validation_error {
+            ValidationError::OutOfRange {
+                field,
+                value,
+                min,
+                max,
+            } => {
+                assert_eq!(field, "age");
+                assert_eq!(value, "150");
+                assert_eq!(min, "0");
+                assert_eq!(max, "120");
+            }
+            _ => panic!("Expected OutOfRange variant"),
+        }
     }
 }
