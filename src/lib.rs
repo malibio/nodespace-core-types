@@ -178,6 +178,56 @@ impl Node {
     pub fn is_last(&self) -> bool {
         self.next_sibling.is_none()
     }
+
+    /// Create a new date node with proper schema-based structure
+    pub fn new_date_node(date: chrono::NaiveDate) -> Self {
+        let date_metadata = DateNodeMetadata::new(date);
+        let content = serde_json::json!({
+            "type": "date",
+            "content": date_metadata.display_format.clone(),
+            "date_metadata": date_metadata
+        });
+        
+        Self::new(content)
+    }
+
+    /// Create a date node with timezone context
+    pub fn new_date_node_with_timezone(date: chrono::NaiveDate, timezone: &str) -> Self {
+        let date_metadata = DateNodeMetadata::with_timezone(date, timezone);
+        let content = serde_json::json!({
+            "type": "date", 
+            "content": date_metadata.display_format.clone(),
+            "date_metadata": date_metadata
+        });
+        
+        Self::new(content)
+    }
+
+    /// Check if this node is a date node by examining its structure
+    pub fn is_date_node(&self) -> bool {
+        if let Some(type_field) = self.content.get("type") {
+            type_field.as_str() == Some("date")
+        } else {
+            false
+        }
+    }
+
+    /// Extract date metadata from a date node
+    pub fn get_date_metadata(&self) -> Option<DateNodeMetadata> {
+        if self.is_date_node() {
+            self.content
+                .get("date_metadata")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+        } else {
+            None
+        }
+    }
+
+    /// Get the date from a date node
+    pub fn get_date(&self) -> Option<chrono::NaiveDate> {
+        self.get_date_metadata()
+            .and_then(|metadata| metadata.parse_date().ok())
+    }
 }
 
 // Relationship reference for graph model
@@ -789,6 +839,57 @@ impl fmt::Display for NodeType {
     }
 }
 
+// Date-specific metadata structure for schema-based date operations
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DateNodeMetadata {
+    pub date: String,                   // ISO format YYYY-MM-DD
+    pub timezone: String,               // UTC offset or timezone name  
+    pub display_format: String,         // Localized display format (e.g., "June 30, 2025")
+    pub created_by_navigation: bool,    // True if auto-created by date navigation
+    pub locale: Option<String>,         // Language/locale for formatting (e.g., "en-US")
+}
+
+impl Default for DateNodeMetadata {
+    fn default() -> Self {
+        Self {
+            date: chrono::Utc::now().date_naive().format("%Y-%m-%d").to_string(),
+            timezone: "UTC".to_string(),
+            display_format: "".to_string(),
+            created_by_navigation: false,
+            locale: None,
+        }
+    }
+}
+
+impl DateNodeMetadata {
+    /// Create DateNodeMetadata for a specific date
+    pub fn new(date: chrono::NaiveDate) -> Self {
+        Self {
+            date: date.format("%Y-%m-%d").to_string(),
+            timezone: "UTC".to_string(),
+            display_format: date.format("%B %-d, %Y").to_string(),
+            created_by_navigation: true,
+            locale: Some("en-US".to_string()),
+        }
+    }
+
+    /// Create DateNodeMetadata with timezone context
+    pub fn with_timezone(date: chrono::NaiveDate, timezone: &str) -> Self {
+        Self {
+            date: date.format("%Y-%m-%d").to_string(),
+            timezone: timezone.to_string(),
+            display_format: date.format("%B %-d, %Y").to_string(),
+            created_by_navigation: true,
+            locale: Some("en-US".to_string()),
+        }
+    }
+
+    /// Parse the stored date back to NaiveDate
+    pub fn parse_date(&self) -> Result<chrono::NaiveDate, chrono::ParseError> {
+        chrono::NaiveDate::parse_from_str(&self.date, "%Y-%m-%d")
+    }
+}
+
 // Camera information from EXIF data
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CameraInfo {
@@ -1198,6 +1299,185 @@ impl ImageNode {
             }
             .into()
         })
+    }
+}
+
+// ========================================
+// Multi-Level Embedding Types (Shared)
+// ========================================
+
+/// Context strategy for contextual embedding generation
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ContextStrategy {
+    /// Fast rule-based context generation using parent/sibling/mention patterns
+    RuleBased,
+    /// Phi-4 enhanced context curation (future implementation)
+    Phi4Enhanced,
+    /// Adaptive strategy selection based on content analysis
+    Adaptive,
+}
+
+impl Default for ContextStrategy {
+    fn default() -> Self {
+        Self::RuleBased
+    }
+}
+
+/// Node context information for contextual embedding generation
+/// Used by core-logic to build context and nlp-engine to generate embeddings
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NodeContext {
+    /// Parent node for hierarchical context
+    pub parent: Option<Node>,
+    /// Previous sibling for sequential context
+    pub previous_sibling: Option<Node>,
+    /// Next sibling for sequential context
+    pub next_sibling: Option<Node>,
+    /// All sibling nodes for broader context
+    pub siblings: Vec<Node>,
+    /// Nodes that mention this node (references)
+    pub mentions: Vec<Node>,
+    /// Related nodes by topic or content similarity
+    pub related_nodes: Vec<Node>,
+    /// Strategy to use for context generation
+    pub strategy: ContextStrategy,
+}
+
+impl NodeContext {
+    /// Create a new NodeContext with specified strategy
+    pub fn with_strategy(strategy: ContextStrategy) -> Self {
+        Self {
+            strategy,
+            ..Default::default()
+        }
+    }
+
+    /// Add parent context
+    pub fn with_parent(mut self, parent: Node) -> Self {
+        self.parent = Some(parent);
+        self
+    }
+
+    /// Add sibling context
+    pub fn with_siblings(
+        mut self,
+        previous: Option<Node>,
+        next: Option<Node>,
+        all_siblings: Vec<Node>,
+    ) -> Self {
+        self.previous_sibling = previous;
+        self.next_sibling = next;
+        self.siblings = all_siblings;
+        self
+    }
+
+    /// Add mention context
+    pub fn with_mentions(mut self, mentions: Vec<Node>) -> Self {
+        self.mentions = mentions;
+        self
+    }
+
+    /// Add related nodes context
+    pub fn with_related_nodes(mut self, related_nodes: Vec<Node>) -> Self {
+        self.related_nodes = related_nodes;
+        self
+    }
+}
+
+/// Performance metrics for embedding generation
+/// Used by data-store, core-logic, and nlp-engine for tracking
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EmbeddingGenerationMetrics {
+    /// Time taken for individual embedding generation (ms)
+    pub individual_time_ms: u64,
+    /// Time taken for contextual embedding generation (ms)
+    pub contextual_time_ms: Option<u64>,
+    /// Time taken for hierarchical embedding generation (ms)
+    pub hierarchical_time_ms: Option<u64>,
+    /// Total time for all embeddings (ms)
+    pub total_time_ms: u64,
+    /// Context text length used for contextual embedding
+    pub context_length: Option<usize>,
+    /// Hierarchical path depth
+    pub path_depth: Option<usize>,
+    /// Cache hits during generation
+    pub cache_hits: u8,
+    /// Cache misses during generation
+    pub cache_misses: u8,
+}
+
+/// Multi-level embeddings containing individual, contextual, and hierarchical embeddings
+/// Used by data-store for storage, core-logic for caching, and nlp-engine for generation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiLevelEmbeddings {
+    /// Individual embedding - just the node content
+    pub individual: Vec<f32>,
+    /// Contextual embedding - enhanced with relationship context
+    pub contextual: Option<Vec<f32>>,
+    /// Hierarchical embedding - full path context from root
+    pub hierarchical: Option<Vec<f32>>,
+    /// Context strategy used for generation
+    pub context_strategy: ContextStrategy,
+    /// When the embeddings were generated
+    pub generated_at: DateTime<Utc>,
+    /// Performance metrics for embedding generation
+    pub generation_metrics: EmbeddingGenerationMetrics,
+}
+
+impl MultiLevelEmbeddings {
+    /// Create new multi-level embeddings with individual embedding
+    pub fn new(individual: Vec<f32>, strategy: ContextStrategy) -> Self {
+        Self {
+            individual,
+            contextual: None,
+            hierarchical: None,
+            context_strategy: strategy,
+            generated_at: Utc::now(),
+            generation_metrics: EmbeddingGenerationMetrics::default(),
+        }
+    }
+
+    /// Add contextual embedding
+    pub fn with_contextual(mut self, contextual: Vec<f32>) -> Self {
+        self.contextual = Some(contextual);
+        self
+    }
+
+    /// Add hierarchical embedding
+    pub fn with_hierarchical(mut self, hierarchical: Vec<f32>) -> Self {
+        self.hierarchical = Some(hierarchical);
+        self
+    }
+
+    /// Add generation metrics
+    pub fn with_metrics(mut self, metrics: EmbeddingGenerationMetrics) -> Self {
+        self.generation_metrics = metrics;
+        self
+    }
+
+    /// Check if all embedding levels are available
+    pub fn is_complete(&self) -> bool {
+        self.contextual.is_some() && self.hierarchical.is_some()
+    }
+
+    /// Get the most specific embedding available (hierarchical > contextual > individual)
+    pub fn best_embedding(&self) -> &Vec<f32> {
+        self.hierarchical
+            .as_ref()
+            .or(self.contextual.as_ref())
+            .unwrap_or(&self.individual)
+    }
+
+    /// Count of available embedding levels
+    pub fn embedding_levels(&self) -> u8 {
+        let mut count = 1; // individual is always present
+        if self.contextual.is_some() {
+            count += 1;
+        }
+        if self.hierarchical.is_some() {
+            count += 1;
+        }
+        count
     }
 }
 
