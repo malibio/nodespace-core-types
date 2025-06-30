@@ -4,6 +4,108 @@ use std::fmt;
 use std::time::Duration;
 use uuid::Uuid;
 
+// ========================================
+// Semantic Versioning and Feature Management
+// ========================================
+
+/// Semantic version information for this crate
+pub const CORE_TYPES_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// API version constants for feature flag coordination
+pub mod version {
+    /// Current stable API version (2.x series)
+    pub const V2_API: &str = "2.0";
+
+    /// Preview API version (3.x series)
+    pub const V3_PREVIEW: &str = "3.0-preview";
+
+    /// Legacy API version (1.x series, deprecated)
+    #[deprecated(since = "2.0.0", note = "v1 API is deprecated, please migrate to v2")]
+    pub const V1_LEGACY: &str = "1.0-legacy";
+}
+
+/// Feature flag utilities for version management
+pub mod features {
+    /// Check if v2 API is enabled (default)
+    pub fn is_v2_api_enabled() -> bool {
+        cfg!(feature = "v2-api")
+    }
+
+    /// Check if v3 preview features are enabled
+    pub fn is_v3_preview_enabled() -> bool {
+        cfg!(feature = "v3-preview")
+    }
+
+    /// Check if deprecated v1 features are enabled
+    #[deprecated(since = "2.0.0", note = "v1 features will be removed in v3.0.0")]
+    pub fn is_v1_legacy_enabled() -> bool {
+        cfg!(feature = "deprecated-v1")
+    }
+
+    /// Check if enhanced error handling is enabled
+    pub fn is_enhanced_errors_enabled() -> bool {
+        cfg!(feature = "enhanced-errors")
+    }
+
+    /// Check if performance optimizations are enabled
+    pub fn is_performance_opts_enabled() -> bool {
+        cfg!(feature = "performance-opts")
+    }
+
+    /// Get currently active feature flags as a string
+    pub fn active_features() -> Vec<&'static str> {
+        let mut features = Vec::new();
+
+        if is_v2_api_enabled() {
+            features.push("v2-api");
+        }
+        if is_v3_preview_enabled() {
+            features.push("v3-preview");
+        }
+        #[allow(deprecated)]
+        if is_v1_legacy_enabled() {
+            features.push("deprecated-v1");
+        }
+        if is_enhanced_errors_enabled() {
+            features.push("enhanced-errors");
+        }
+        if is_performance_opts_enabled() {
+            features.push("performance-opts");
+        }
+        if cfg!(feature = "experimental") {
+            features.push("experimental");
+        }
+
+        features
+    }
+}
+
+/// Version compatibility utilities
+pub mod compatibility {
+    /// Check if the current version is compatible with a required version
+    pub fn is_compatible_with(required_version: &str) -> bool {
+        match required_version {
+            v if v.starts_with("2.") => cfg!(feature = "v2-api"),
+            v if v.starts_with("3.") => cfg!(feature = "v3-preview"),
+            #[allow(deprecated)]
+            v if v.starts_with("1.") => cfg!(feature = "deprecated-v1"),
+            _ => false,
+        }
+    }
+
+    /// Get version compatibility matrix
+    pub fn compatibility_matrix() -> std::collections::HashMap<&'static str, Vec<&'static str>> {
+        let mut matrix = std::collections::HashMap::new();
+        matrix.insert("v2-api", vec!["2.0", "2.1", "2.x"]);
+        matrix.insert("v3-preview", vec!["3.0-preview", "3.0-alpha"]);
+
+        #[allow(deprecated)]
+        matrix.insert("deprecated-v1", vec!["1.0", "1.1", "1.x"]);
+
+        matrix
+    }
+}
+
 // NodeId - database-agnostic unique identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub String);
@@ -22,6 +124,37 @@ impl NodeId {
     /// Get the ID as a string
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Get the ID as a string (legacy method name)
+    #[deprecated(since = "2.0.0", note = "Use `as_str()` instead for consistency")]
+    #[cfg(feature = "deprecated-v1")]
+    pub fn to_string_legacy(&self) -> String {
+        self.0.clone()
+    }
+
+    /// Create a NodeId with custom prefix (v3 preview feature)
+    #[cfg(feature = "v3-preview")]
+    pub fn with_prefix(prefix: &str) -> Self {
+        Self(format!("{}:{}", prefix, Uuid::new_v4()))
+    }
+
+    /// Extract prefix from NodeId (v3 preview feature)
+    #[cfg(feature = "v3-preview")]
+    pub fn prefix(&self) -> Option<&str> {
+        if self.0.contains(':') {
+            self.0.split(':').next()
+        } else {
+            None
+        }
+    }
+
+    /// Performance-optimized NodeId creation (when performance-opts enabled)
+    #[cfg(feature = "performance-opts")]
+    pub fn new_fast() -> Self {
+        // In real implementation, this might use a faster UUID generation
+        // For now, it's the same as new() but demonstrates the concept
+        Self::new()
     }
 }
 
@@ -67,9 +200,14 @@ pub struct Node {
 impl Node {
     /// Create a new Node with generated ID and content
     pub fn new(content: serde_json::Value) -> Self {
+        #[cfg(feature = "performance-opts")]
+        let id = NodeId::new_fast();
+        #[cfg(not(feature = "performance-opts"))]
+        let id = NodeId::new();
+
         let now = chrono::Utc::now().to_rfc3339();
         Self {
-            id: NodeId::new(),
+            id,
             content,
             metadata: None,
             created_at: now.clone(),
@@ -187,7 +325,7 @@ impl Node {
             "content": date_metadata.display_format.clone(),
             "date_metadata": date_metadata
         });
-        
+
         Self::new(content)
     }
 
@@ -195,11 +333,11 @@ impl Node {
     pub fn new_date_node_with_timezone(date: chrono::NaiveDate, timezone: &str) -> Self {
         let date_metadata = DateNodeMetadata::with_timezone(date, timezone);
         let content = serde_json::json!({
-            "type": "date", 
+            "type": "date",
             "content": date_metadata.display_format.clone(),
             "date_metadata": date_metadata
         });
-        
+
         Self::new(content)
     }
 
@@ -227,6 +365,51 @@ impl Node {
     pub fn get_date(&self) -> Option<chrono::NaiveDate> {
         self.get_date_metadata()
             .and_then(|metadata| metadata.parse_date().ok())
+    }
+
+    /// Create a node with typed content (v3 preview feature)
+    #[cfg(feature = "v3-preview")]
+    pub fn new_typed<T: serde::Serialize>(content: T, node_type: &str) -> NodeSpaceResult<Self> {
+        let content_value =
+            serde_json::to_value(content).map_err(|e| ProcessingError::SerializationFailed {
+                format: "JSON".to_string(),
+                reason: e.to_string(),
+                data_type: std::any::type_name::<T>().to_string(),
+                fallback_formats: vec!["MessagePack".to_string()],
+            })?;
+
+        let mut node = Self::new(content_value);
+        if let Some(metadata) = node.metadata.as_mut() {
+            if let Some(map) = metadata.as_object_mut() {
+                map.insert(
+                    "node_type".to_string(),
+                    serde_json::Value::String(node_type.to_string()),
+                );
+            }
+        } else {
+            node.metadata = Some(serde_json::json!({
+                "node_type": node_type
+            }));
+        }
+        Ok(node)
+    }
+
+    /// Get node type from metadata (v3 preview feature)
+    #[cfg(feature = "v3-preview")]
+    pub fn node_type(&self) -> Option<String> {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.get("node_type"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
+    }
+
+    /// Legacy method for backward compatibility
+    #[deprecated(since = "2.0.0", note = "Use `with_metadata()` instead")]
+    #[cfg(feature = "deprecated-v1")]
+    pub fn set_metadata_legacy(&mut self, metadata: serde_json::Value) {
+        self.metadata = Some(metadata);
+        self.touch();
     }
 }
 
@@ -514,6 +697,32 @@ pub enum ServiceError {
     },
 }
 
+/// Error severity levels for enhanced error handling
+#[cfg(feature = "enhanced-errors")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErrorSeverity {
+    /// Informational message, no action required
+    Info,
+    /// Warning that should be noted but doesn't prevent operation
+    Warning,
+    /// Error that prevents the current operation from completing
+    Error,
+    /// Critical error that affects system stability
+    Critical,
+}
+
+#[cfg(feature = "enhanced-errors")]
+impl fmt::Display for ErrorSeverity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ErrorSeverity::Info => write!(f, "INFO"),
+            ErrorSeverity::Warning => write!(f, "WARN"),
+            ErrorSeverity::Error => write!(f, "ERROR"),
+            ErrorSeverity::Critical => write!(f, "CRITICAL"),
+        }
+    }
+}
+
 // Top-level hierarchical error system
 #[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
 pub enum NodeSpaceError {
@@ -689,20 +898,57 @@ impl ServiceError {
 }
 
 impl NodeSpaceError {
-    // Legacy compatibility constructors (deprecated)
-    #[deprecated(note = "Use specific error types instead")]
+    // Legacy compatibility constructors (deprecated, require v1 feature flag)
+    #[deprecated(
+        since = "2.0.0",
+        note = "Use DatabaseError::connection_failed or other specific error constructors instead. This legacy method will be removed in v3.0.0"
+    )]
+    #[cfg(feature = "deprecated-v1")]
     pub fn database_error(msg: &str) -> Self {
         Self::Database(DatabaseError::connection_failed("unknown", msg))
     }
 
-    #[deprecated(note = "Use DatabaseError::not_found instead")]
+    #[deprecated(
+        since = "2.0.0",
+        note = "Use DatabaseError::not_found instead. This legacy method will be removed in v3.0.0"
+    )]
+    #[cfg(feature = "deprecated-v1")]
     pub fn not_found(msg: &str) -> Self {
         Self::Database(DatabaseError::not_found("unknown", msg))
     }
 
-    #[deprecated(note = "Use ValidationError::required_field instead")]
+    #[deprecated(
+        since = "2.0.0",
+        note = "Use ValidationError::required_field instead. This legacy method will be removed in v3.0.0"
+    )]
+    #[cfg(feature = "deprecated-v1")]
     pub fn validation_error(msg: &str) -> Self {
         Self::Validation(ValidationError::required_field("unknown", msg))
+    }
+
+    /// Enhanced error context (v3 preview feature)
+    #[cfg(feature = "v3-preview")]
+    pub fn with_context(self, _context: std::collections::HashMap<String, String>) -> Self {
+        // In a real implementation, this would add context to the error
+        // For now, it demonstrates the concept
+        self
+    }
+
+    /// Get error severity level (enhanced errors feature)
+    #[cfg(feature = "enhanced-errors")]
+    pub fn severity(&self) -> ErrorSeverity {
+        match self {
+            Self::Database(DatabaseError::ConnectionFailed { .. }) => ErrorSeverity::Critical,
+            Self::Database(DatabaseError::QueryTimeout { .. }) => ErrorSeverity::Warning,
+            Self::Validation(_) => ErrorSeverity::Error,
+            Self::Network(NetworkError::ConnectionTimeout { .. }) => ErrorSeverity::Warning,
+            Self::Network(NetworkError::HttpError { status_code, .. }) if *status_code >= 500 => {
+                ErrorSeverity::Error
+            }
+            Self::Processing(ProcessingError::ModelError { .. }) => ErrorSeverity::Error,
+            Self::Service(ServiceError::ServiceUnavailable { .. }) => ErrorSeverity::Critical,
+            _ => ErrorSeverity::Info,
+        }
     }
 
     // Utility methods for error analysis
@@ -842,17 +1088,20 @@ impl fmt::Display for NodeType {
 // Date-specific metadata structure for schema-based date operations
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DateNodeMetadata {
-    pub date: String,                   // ISO format YYYY-MM-DD
-    pub timezone: String,               // UTC offset or timezone name  
-    pub display_format: String,         // Localized display format (e.g., "June 30, 2025")
-    pub created_by_navigation: bool,    // True if auto-created by date navigation
-    pub locale: Option<String>,         // Language/locale for formatting (e.g., "en-US")
+    pub date: String,                // ISO format YYYY-MM-DD
+    pub timezone: String,            // UTC offset or timezone name
+    pub display_format: String,      // Localized display format (e.g., "June 30, 2025")
+    pub created_by_navigation: bool, // True if auto-created by date navigation
+    pub locale: Option<String>,      // Language/locale for formatting (e.g., "en-US")
 }
 
 impl Default for DateNodeMetadata {
     fn default() -> Self {
         Self {
-            date: chrono::Utc::now().date_naive().format("%Y-%m-%d").to_string(),
+            date: chrono::Utc::now()
+                .date_naive()
+                .format("%Y-%m-%d")
+                .to_string(),
             timezone: "UTC".to_string(),
             display_format: "".to_string(),
             created_by_navigation: false,
@@ -2425,6 +2674,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "deprecated-v1")]
     #[test]
     fn test_legacy_compatibility() {
         // Test that legacy constructors still work but are deprecated
@@ -2505,5 +2755,204 @@ mod tests {
             }
             _ => panic!("Expected OutOfRange variant"),
         }
+    }
+
+    // ========================================
+    // Semantic Versioning System Tests
+    // ========================================
+
+    #[test]
+    fn test_version_constants() {
+        assert_eq!(crate::version::V2_API, "2.0");
+        assert_eq!(crate::version::V3_PREVIEW, "3.0-preview");
+    }
+
+    #[test]
+    fn test_core_types_version() {
+        assert_eq!(CORE_TYPES_VERSION, "2.0.0");
+    }
+
+    #[test]
+    fn test_feature_flags() {
+        // v2-api should be enabled by default
+        assert!(crate::features::is_v2_api_enabled());
+
+        // Active features should include v2-api
+        let active = crate::features::active_features();
+        assert!(active.contains(&"v2-api"));
+    }
+
+    #[test]
+    fn test_version_compatibility() {
+        // v2 compatibility
+        assert!(crate::compatibility::is_compatible_with("2.0"));
+        assert!(crate::compatibility::is_compatible_with("2.1"));
+
+        // Compatibility matrix
+        let matrix = crate::compatibility::compatibility_matrix();
+        assert!(matrix.contains_key("v2-api"));
+        assert!(matrix["v2-api"].contains(&"2.0"));
+    }
+
+    #[test]
+    fn test_nodeid_basic_functionality() {
+        let id = NodeId::new();
+        assert_eq!(id.as_str().len(), 36); // UUID v4 length
+
+        let custom_id = NodeId::from_string("test-id".to_string());
+        assert_eq!(custom_id.as_str(), "test-id");
+    }
+
+    #[cfg(feature = "v3-preview")]
+    #[test]
+    fn test_nodeid_v3_preview_features() {
+        let prefixed_id = NodeId::with_prefix("test");
+        assert!(prefixed_id.as_str().starts_with("test:"));
+        assert_eq!(prefixed_id.prefix(), Some("test"));
+
+        let regular_id = NodeId::new();
+        assert_eq!(regular_id.prefix(), None);
+    }
+
+    #[cfg(feature = "performance-opts")]
+    #[test]
+    fn test_performance_optimizations() {
+        let fast_id = NodeId::new_fast();
+        assert_eq!(fast_id.as_str().len(), 36); // Should still be valid UUID
+
+        // Node creation should use fast NodeId generation
+        let node = Node::new(serde_json::json!({"test": "content"}));
+        assert_eq!(node.id.as_str().len(), 36);
+    }
+
+    #[cfg(feature = "deprecated-v1")]
+    #[test]
+    fn test_legacy_node_methods() {
+        let id = NodeId::new();
+        #[allow(deprecated)]
+        let legacy_string = id.to_string_legacy();
+        assert_eq!(legacy_string, id.as_str());
+
+        let mut node = Node::new(serde_json::json!({"test": "content"}));
+        #[allow(deprecated)]
+        node.set_metadata_legacy(serde_json::json!({"version": "legacy"}));
+        assert!(node.metadata.is_some());
+    }
+
+    #[cfg(feature = "enhanced-errors")]
+    #[test]
+    fn test_enhanced_error_handling() {
+        let critical_error = NodeSpaceError::Database(DatabaseError::ConnectionFailed {
+            database: "test".to_string(),
+            reason: "timeout".to_string(),
+            retry_after: None,
+        });
+        assert_eq!(critical_error.severity(), ErrorSeverity::Critical);
+
+        let warning_error = NodeSpaceError::Database(DatabaseError::QueryTimeout {
+            seconds: 30,
+            query: "SELECT *".to_string(),
+            suggested_limit: None,
+        });
+        assert_eq!(warning_error.severity(), ErrorSeverity::Warning);
+
+        // Test severity display
+        assert_eq!(ErrorSeverity::Critical.to_string(), "CRITICAL");
+        assert_eq!(ErrorSeverity::Warning.to_string(), "WARN");
+    }
+
+    #[cfg(feature = "v3-preview")]
+    #[test]
+    fn test_typed_node_creation() {
+        #[derive(serde::Serialize)]
+        struct TestData {
+            name: String,
+            value: i32,
+        }
+
+        let data = TestData {
+            name: "test".to_string(),
+            value: 42,
+        };
+
+        let node = Node::new_typed(data, "test_type").unwrap();
+        assert_eq!(node.node_type(), Some("test_type".to_string()));
+
+        // Verify content was serialized correctly
+        assert!(node.content.get("name").is_some());
+        assert_eq!(node.content["value"], 42);
+    }
+
+    #[test]
+    fn test_feature_flag_combinations() {
+        // Test that different feature combinations don't conflict
+        let active_features = crate::features::active_features();
+
+        // v2-api should always be active (it's default)
+        assert!(active_features.contains(&"v2-api"));
+
+        // Log active features for debugging
+        println!("Active features: {:?}", active_features);
+    }
+
+    #[test]
+    fn test_version_migration_scenario() {
+        // Simulate a migration scenario where both v2 and v3 features might be active
+        let node = Node::new(serde_json::json!({
+            "content": "migration test",
+            "version": "2.0"
+        }));
+
+        // Node should always have basic functionality regardless of features
+        assert!(!node.id.as_str().is_empty());
+        assert!(node.created_at.len() > 0);
+        assert!(node.is_root());
+    }
+
+    #[cfg(all(feature = "v3-preview", feature = "enhanced-errors"))]
+    #[test]
+    fn test_feature_combination_v3_enhanced() {
+        // Test combining v3 preview with enhanced errors
+        let error = NodeSpaceError::Validation(ValidationError::required_field("test", "context"));
+        let _enhanced_error = error.with_context({
+            let mut context = std::collections::HashMap::new();
+            context.insert("feature_test".to_string(), "v3+enhanced".to_string());
+            context
+        });
+
+        // Verify the error still has proper severity
+        let validation_error =
+            NodeSpaceError::Validation(ValidationError::required_field("test", "context"));
+        assert_eq!(validation_error.severity(), ErrorSeverity::Error);
+    }
+
+    #[test]
+    fn test_backward_compatibility_guarantee() {
+        // Essential functionality that must work regardless of feature flags
+        let node_id = NodeId::new();
+        assert!(node_id.as_str().len() > 0);
+
+        let node = Node::new(serde_json::json!({"essential": "functionality"}));
+        assert!(node.content.get("essential").is_some());
+
+        let error = DatabaseError::not_found("test", "123");
+        let ns_error: NodeSpaceError = error.into();
+        assert!(matches!(ns_error, NodeSpaceError::Database(_)));
+    }
+
+    #[test]
+    fn test_version_policy_compliance() {
+        // Test that our versioning follows semantic versioning rules
+
+        // Major version (2.x) should maintain API compatibility within series
+        let current_version = CORE_TYPES_VERSION;
+        assert!(current_version.starts_with("2."));
+
+        // Feature flags should enable controlled evolution
+        assert!(crate::features::is_v2_api_enabled());
+
+        // Compatibility checks should work
+        assert!(crate::compatibility::is_compatible_with("2.0"));
+        assert!(crate::compatibility::is_compatible_with("2.1"));
     }
 }
