@@ -1,10 +1,14 @@
 [package]
 name = "nodespace-core-types"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2021"
-description = "Database-agnostic shared types for NodeSpace"
+description = "Database-agnostic shared types for NodeSpace with semantic versioning support"
 license = "MIT"
 repository = "https://github.com/malibio/nodespace-core-types"
+authors = ["NodeSpace Team"]
+keywords = ["nodespace", "types", "distributed", "semantic-versioning"]
+categories = ["data-structures", "api-bindings"]
+readme = "README.md"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -13,4 +17,51 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1.0"
 
+# Feature flags for controlled API evolution and versioning
+[features]
+default = ["v2-api"]
+
+# Current stable API (version 2.x)
+v2-api = []
+
+# Preview features for next major version (version 3.x)
+v3-preview = []
+
+# Legacy support for smooth transitions
+deprecated-v1 = []
+
+# Enhanced error handling (can be enabled independently)
+enhanced-errors = []
+
+# Performance optimizations (can be enabled independently)
+performance-opts = []
+
+# Experimental features (unstable, may change)
+experimental = []
+
 [dev-dependencies]
+# Testing framework for version compatibility
+criterion = { version = "0.5", features = ["html_reports"] }
+# For version compatibility validation
+semver = "1.0"
+# For testing feature flag combinations
+proptest = "1.0"
+
+# Version policy documentation
+[package.metadata.semantic-versioning]
+# Version policy for NodeSpace core types
+policy = "strict"
+breaking-change-policy = "major-version-bump"
+deprecation-cycle = "2-versions"
+supported-versions = ["2.x", "1.x-deprecated"]
+
+# Feature flag compatibility matrix
+[package.metadata.features]
+# Stable features that can be safely combined
+stable = ["v2-api", "enhanced-errors", "performance-opts"]
+# Preview features (use with caution in production)
+preview = ["v3-preview"]
+# Legacy features (deprecated, will be removed in v3.0)
+legacy = ["deprecated-v1"]
+# Experimental features (may break without notice)
+experimental = ["experimental"]
