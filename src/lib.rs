@@ -2884,7 +2884,7 @@ mod tests {
             (NodeSpaceError::Database(orig), NodeSpaceError::Database(deser)) => {
                 assert_eq!(format!("{}", orig), format!("{}", deser));
             }
-            _ => panic!("Serialization changed error type"),
+            _ => assert!(false, "Serialization changed error type"),
         }
     }
 
@@ -2929,7 +2929,7 @@ mod tests {
                 assert!(retryable);
                 assert!(!headers.is_empty());
             }
-            _ => panic!("Expected HttpError variant"),
+            _ => assert!(false, "Expected HttpError variant"),
         }
     }
 
@@ -2967,7 +2967,7 @@ mod tests {
                 assert_eq!(min, "0");
                 assert_eq!(max, "120");
             }
-            _ => panic!("Expected OutOfRange variant"),
+            _ => assert!(false, "Expected OutOfRange variant"),
         }
     }
 
@@ -3105,8 +3105,6 @@ mod tests {
         // v2-api should always be active (it's default)
         assert!(active_features.contains(&"v2-api"));
 
-        // Log active features for debugging
-        println!("Active features: {:?}", active_features);
     }
 
     #[test]
