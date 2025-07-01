@@ -3104,7 +3104,6 @@ mod tests {
 
         // v2-api should always be active (it's default)
         assert!(active_features.contains(&"v2-api"));
-
     }
 
     #[test]
