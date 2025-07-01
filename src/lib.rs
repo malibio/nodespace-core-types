@@ -242,30 +242,25 @@ impl From<&str> for NodeId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
+    pub r#type: String,                      // Required by LanceDB: "text", "date", "task", etc.
     pub content: serde_json::Value,          // Flexible content
     pub metadata: Option<serde_json::Value>, // Optional system metadata
     pub created_at: String,                  // ISO format timestamp
     pub updated_at: String,                  // ISO format timestamp
     // Hierarchical relationship
     pub parent_id: Option<NodeId>, // → Parent node (None = root)
-    // Sibling pointer fields for sequential navigation
+    // Sibling navigation (unidirectional for simplicity)
     pub next_sibling: Option<NodeId>, // → Next node in sequence (None = last)
-    pub previous_sibling: Option<NodeId>, // ← Previous node in sequence (None = first)
     /// Root hierarchy optimization for efficient queries
     ///
     /// Points to the hierarchy root node, enabling O(1) indexed queries instead of
     /// multiple O(N) scans. For root nodes, this points to the node itself.
     pub root_id: Option<NodeId>,
-    /// Root type classification for hierarchy organization
-    ///
-    /// Identifies the type of hierarchy root: "date", "project", "area", etc.
-    /// Used for targeted queries and business logic organization.
-    pub root_type: Option<String>,
 }
 
 impl Node {
-    /// Create a new Node with generated ID and content
-    pub fn new(content: serde_json::Value) -> Self {
+    /// Create a new Node with generated ID, type, and content
+    pub fn new(r#type: String, content: serde_json::Value) -> Self {
         #[cfg(feature = "performance-opts")]
         let id = NodeId::new_fast();
         #[cfg(not(feature = "performance-opts"))]
@@ -274,32 +269,30 @@ impl Node {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
             id,
+            r#type,
             content,
             metadata: None,
             created_at: now.clone(),
             updated_at: now,
             parent_id: None,
             next_sibling: None,
-            previous_sibling: None,
             root_id: None,
-            root_type: None,
         }
     }
 
-    /// Create a Node with existing ID
-    pub fn with_id(id: NodeId, content: serde_json::Value) -> Self {
+    /// Create a Node with existing ID, type, and content
+    pub fn with_id(id: NodeId, r#type: String, content: serde_json::Value) -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
             id,
+            r#type,
             content,
             metadata: None,
             created_at: now.clone(),
             updated_at: now,
             parent_id: None,
             next_sibling: None,
-            previous_sibling: None,
             root_id: None,
-            root_type: None,
         }
     }
 
@@ -320,11 +313,6 @@ impl Node {
         self
     }
 
-    /// Set the previous sibling pointer
-    pub fn with_previous_sibling(mut self, previous_sibling: Option<NodeId>) -> Self {
-        self.previous_sibling = previous_sibling;
-        self
-    }
 
     /// Set the parent ID
     pub fn with_parent(mut self, parent_id: Option<NodeId>) -> Self {
@@ -332,12 +320,6 @@ impl Node {
         self
     }
 
-    /// Set both sibling pointers
-    pub fn with_siblings(mut self, previous: Option<NodeId>, next: Option<NodeId>) -> Self {
-        self.previous_sibling = previous;
-        self.next_sibling = next;
-        self
-    }
 
     /// Update sibling pointers
     pub fn set_next_sibling(&mut self, next_sibling: Option<NodeId>) {
@@ -345,11 +327,6 @@ impl Node {
         self.touch();
     }
 
-    /// Update previous sibling pointer
-    pub fn set_previous_sibling(&mut self, previous_sibling: Option<NodeId>) {
-        self.previous_sibling = previous_sibling;
-        self.touch();
-    }
 
     /// Update parent ID
     pub fn set_parent_id(&mut self, parent_id: Option<NodeId>) {
@@ -372,15 +349,6 @@ impl Node {
         self.next_sibling.is_some()
     }
 
-    /// Check if this node has a previous sibling
-    pub fn has_previous_sibling(&self) -> bool {
-        self.previous_sibling.is_some()
-    }
-
-    /// Check if this node is first in sequence (no previous sibling)
-    pub fn is_first(&self) -> bool {
-        self.previous_sibling.is_none()
-    }
 
     /// Check if this node is last in sequence (no next sibling)
     pub fn is_last(&self) -> bool {
@@ -396,7 +364,7 @@ impl Node {
             "date_metadata": date_metadata
         });
 
-        Self::new(content)
+        Self::new("date".to_string(), content)
     }
 
     /// Create a date node with timezone context
@@ -408,7 +376,7 @@ impl Node {
             "date_metadata": date_metadata
         });
 
-        Self::new(content)
+        Self::new("date".to_string(), content)
     }
 
     /// Check if this node is a date node by examining its structure
@@ -484,53 +452,7 @@ impl Node {
 
     // Root hierarchy optimization methods
 
-    /// Set root hierarchy information for efficient queries
-    ///
-    /// This method configures a node to belong to a specific hierarchy root,
-    /// enabling O(1) indexed queries instead of O(N) hierarchy traversal.
-    ///
-    /// # Arguments
-    /// * `root_id` - The NodeId of the hierarchy root
-    /// * `root_type` - Classification of the root type ("date", "project", "area", etc.)
-    ///
-    /// # Example
-    /// ```rust
-    /// use nodespace_core_types::{Node, NodeId};
-    /// use serde_json::json;
-    ///
-    /// let root_id = NodeId::from_string("date:2025-06-30".to_string());
-    /// let child = Node::new(json!({"text": "Meeting notes"}))
-    ///     .with_root(root_id, "date".to_string());
-    /// ```
-    pub fn with_root(mut self, root_id: NodeId, root_type: String) -> Self {
-        self.root_id = Some(root_id);
-        self.root_type = Some(root_type);
-        self
-    }
 
-    /// Mark this node as a hierarchy root (root_id points to itself)
-    ///
-    /// This method creates a hierarchy root node where the root_id points to the node's
-    /// own ID, establishing it as the top of a hierarchy tree for efficient querying.
-    ///
-    /// # Arguments
-    /// * `root_type` - Classification of the root type ("date", "project", "area", etc.)
-    ///
-    /// # Example
-    /// ```rust
-    /// use nodespace_core_types::Node;
-    /// use serde_json::json;
-    ///
-    /// let date_root = Node::new(json!({"title": "Monday, June 30, 2025"}))
-    ///     .as_hierarchy_root("date".to_string());
-    ///
-    /// assert!(date_root.is_hierarchy_root());
-    /// ```
-    pub fn as_hierarchy_root(mut self, root_type: String) -> Self {
-        self.root_id = Some(self.id.clone());
-        self.root_type = Some(root_type);
-        self
-    }
 
     /// Update root hierarchy information
     ///
@@ -539,10 +461,8 @@ impl Node {
     ///
     /// # Arguments
     /// * `root_id` - Optional NodeId of the hierarchy root (None to clear)
-    /// * `root_type` - Optional root type classification (None to clear)
-    pub fn set_root(&mut self, root_id: Option<NodeId>, root_type: Option<String>) {
+    pub fn set_root(&mut self, root_id: Option<NodeId>) {
         self.root_id = root_id;
-        self.root_type = root_type;
         self.touch();
     }
 
@@ -562,59 +482,7 @@ impl Node {
         matches!((&self.root_id, &self.parent_id), (Some(root_id), None) if root_id == &self.id)
     }
 
-    /// Get the root type for this hierarchy
-    ///
-    /// Returns the classification of the hierarchy root this node belongs to,
-    /// such as "date", "project", "area", etc.
-    pub fn get_root_type(&self) -> Option<&str> {
-        self.root_type.as_deref()
-    }
 
-    /// Check if this node belongs to a specific root type
-    ///
-    /// # Arguments
-    /// * `root_type` - The root type to check against
-    ///
-    /// # Example
-    /// ```rust
-    /// # use nodespace_core_types::Node;
-    /// # use serde_json::json;
-    /// let node = Node::new(json!({})).as_hierarchy_root("date".to_string());
-    /// assert!(node.is_root_type("date"));
-    /// assert!(!node.is_root_type("project"));
-    /// ```
-    pub fn is_root_type(&self, root_type: &str) -> bool {
-        self.root_type.as_deref() == Some(root_type)
-    }
-
-    /// Validate root_id relationship consistency
-    ///
-    /// Ensures that root_id and root_type are either both present or both absent,
-    /// preventing inconsistent optimization state.
-    ///
-    /// # Returns
-    /// * `Ok(())` if the root information is consistent
-    /// * `Err(String)` with description if inconsistent
-    ///
-    /// # Example
-    /// ```rust
-    /// # use nodespace_core_types::Node;
-    /// # use serde_json::json;
-    /// let mut node = Node::new(json!({}));
-    /// assert!(node.validate_root_consistency().is_ok());
-    ///
-    /// // This would be invalid:
-    /// // node.root_id = Some(NodeId::new());
-    /// // node.root_type = None;
-    /// // assert!(node.validate_root_consistency().is_err());
-    /// ```
-    pub fn validate_root_consistency(&self) -> Result<(), String> {
-        match (&self.root_id, &self.root_type) {
-            (Some(_), None) => Err("root_id is set but root_type is missing".to_string()),
-            (None, Some(_)) => Err("root_type is set but root_id is missing".to_string()),
-            _ => Ok(()),
-        }
-    }
 }
 
 // Relationship reference for graph model
@@ -1408,13 +1276,11 @@ pub struct ImageNode {
     pub user_description: Option<String>,
     pub user_tags: Vec<String>,
 
-    // Sibling pointer fields for sequential navigation
+    // Sibling navigation (unidirectional for simplicity)
     pub next_sibling: Option<NodeId>, // → Next image in sequence (None = last)
-    pub previous_sibling: Option<NodeId>, // ← Previous image in sequence (None = first)
 
     // Root hierarchy optimization for efficient queries
     pub root_id: Option<NodeId>, // → Points to hierarchy root (enables O(1) queries)
-    pub root_type: Option<String>, // Root type: "date", "project", "area", etc.
 }
 
 impl ImageNode {
@@ -1446,9 +1312,7 @@ impl ImageNode {
             user_description: None,
             user_tags: Vec::new(),
             next_sibling: None,
-            previous_sibling: None,
             root_id: None,
-            root_type: None,
         }
     }
 
@@ -1481,9 +1345,7 @@ impl ImageNode {
             user_description: None,
             user_tags: Vec::new(),
             next_sibling: None,
-            previous_sibling: None,
             root_id: None,
-            root_type: None,
         }
     }
 
@@ -1570,9 +1432,8 @@ impl ImageNode {
         self.updated_at = Utc::now();
     }
 
-    /// Set sibling pointers
-    pub fn with_siblings(mut self, previous: Option<NodeId>, next: Option<NodeId>) -> Self {
-        self.previous_sibling = previous;
+    /// Set next sibling pointer
+    pub fn with_next_sibling(mut self, next: Option<NodeId>) -> Self {
         self.next_sibling = next;
         self.touch();
         self
@@ -1584,25 +1445,9 @@ impl ImageNode {
         self.touch();
     }
 
-    /// Set previous sibling
-    pub fn set_previous_sibling(&mut self, previous_sibling: Option<NodeId>) {
-        self.previous_sibling = previous_sibling;
-        self.touch();
-    }
-
     /// Check if this node has a next sibling
     pub fn has_next_sibling(&self) -> bool {
         self.next_sibling.is_some()
-    }
-
-    /// Check if this node has a previous sibling
-    pub fn has_previous_sibling(&self) -> bool {
-        self.previous_sibling.is_some()
-    }
-
-    /// Check if this node is first in sequence
-    pub fn is_first(&self) -> bool {
-        self.previous_sibling.is_none()
     }
 
     /// Check if this node is last in sequence
@@ -1739,15 +1584,14 @@ impl ImageNode {
 
         Ok(Node {
             id: self.id.clone(),
+            r#type: "image".to_string(),
             content,
             metadata: None,
             created_at: self.created_at.to_rfc3339(),
             updated_at: self.updated_at.to_rfc3339(),
             parent_id: self.parent_id.clone(),
             next_sibling: self.next_sibling.clone(),
-            previous_sibling: self.previous_sibling.clone(),
             root_id: self.root_id.clone(),
-            root_type: self.root_type.clone(),
         })
     }
 
@@ -1967,7 +1811,7 @@ mod tests {
     #[test]
     fn test_node_creation() {
         let content = json!({"name": "Test User", "email": "test@example.com"});
-        let node = Node::new(content.clone());
+        let node = Node::new("test".to_string(), content.clone());
 
         assert_eq!(node.id.as_str().len(), 36); // UUID length
         assert_eq!(node.content, content);
@@ -1980,7 +1824,7 @@ mod tests {
     fn test_node_with_metadata() {
         let content = json!({"title": "Test Document"});
         let metadata = json!({"version": 1, "author": "test"});
-        let node = Node::new(content.clone()).with_metadata(metadata.clone());
+        let node = Node::new("test".to_string(), content.clone()).with_metadata(metadata.clone());
 
         assert_eq!(node.content, content);
         assert_eq!(node.metadata, Some(metadata));
@@ -2045,7 +1889,7 @@ mod tests {
         assert_eq!(node_id, deserialized);
 
         let content = json!({"name": "Test"});
-        let node = Node::new(content);
+        let node = Node::new("test".to_string(), content);
         let serialized = serde_json::to_string(&node).unwrap();
         let deserialized: Node = serde_json::from_str(&serialized).unwrap();
         assert_eq!(node.id, deserialized.id);
@@ -2065,51 +1909,41 @@ mod tests {
     #[test]
     fn test_node_sibling_pointers() {
         let content = json!({"text": "Hello World"});
-        let node = Node::new(content);
+        let node = Node::new("test".to_string(), content);
 
         // New nodes should have no siblings
         assert!(node.next_sibling.is_none());
-        assert!(node.previous_sibling.is_none());
-        assert!(node.is_first());
         assert!(node.is_last());
         assert!(!node.has_next_sibling());
-        assert!(!node.has_previous_sibling());
     }
 
     #[test]
-    fn test_node_with_siblings() {
-        let content = json!({"text": "Middle Node"});
-        let prev_id = NodeId::new();
+    fn test_node_with_next_sibling() {
+        let content = json!({"text": "Test Node"});
         let next_id = NodeId::new();
 
-        let node = Node::new(content).with_siblings(Some(prev_id.clone()), Some(next_id.clone()));
+        let node = Node::new("test".to_string(), content).with_next_sibling(Some(next_id.clone()));
 
-        assert_eq!(node.previous_sibling, Some(prev_id));
         assert_eq!(node.next_sibling, Some(next_id));
-        assert!(!node.is_first());
-        assert!(!node.is_last());
         assert!(node.has_next_sibling());
-        assert!(node.has_previous_sibling());
+        assert!(!node.is_last());
     }
 
     #[test]
     fn test_node_sibling_builder_methods() {
         let content = json!({"text": "Test Node"});
         let next_id = NodeId::new();
-        let prev_id = NodeId::new();
 
-        let node = Node::new(content)
-            .with_next_sibling(Some(next_id.clone()))
-            .with_previous_sibling(Some(prev_id.clone()));
+        let node = Node::new("test".to_string(), content)
+            .with_next_sibling(Some(next_id.clone()));
 
         assert_eq!(node.next_sibling, Some(next_id));
-        assert_eq!(node.previous_sibling, Some(prev_id));
     }
 
     #[test]
     fn test_node_sibling_mutation() {
         let content = json!({"text": "Mutable Node"});
-        let mut node = Node::new(content);
+        let mut node = Node::new("test".to_string(), content);
 
         let next_id = NodeId::new();
         let prev_id = NodeId::new();
@@ -2120,25 +1954,17 @@ mod tests {
         assert!(node.has_next_sibling());
         assert!(!node.is_last());
 
-        // Test setting previous sibling
-        node.set_previous_sibling(Some(prev_id.clone()));
-        assert_eq!(node.previous_sibling, Some(prev_id));
-        assert!(node.has_previous_sibling());
-        assert!(!node.is_first());
-
         // Test clearing siblings
         node.set_next_sibling(None);
-        node.set_previous_sibling(None);
-        assert!(node.is_first());
         assert!(node.is_last());
     }
 
     #[test]
     fn test_node_sequence_chain() {
         // Create a chain of 3 nodes: A -> B -> C
-        let node_a = Node::new(json!({"text": "Node A"}));
-        let node_b = Node::new(json!({"text": "Node B"}));
-        let node_c = Node::new(json!({"text": "Node C"}));
+        let node_a = Node::new("test".to_string(), json!({"text": "Node A"}));
+        let node_b = Node::new("test".to_string(), json!({"text": "Node B"}));
+        let node_c = Node::new("test".to_string(), json!({"text": "Node C"}));
 
         let a_id = node_a.id.clone();
         let b_id = node_b.id.clone();
@@ -2172,7 +1998,7 @@ mod tests {
         let next_id = NodeId::new();
         let content = json!({"text": "Serialization Test"});
 
-        let node = Node::new(content).with_siblings(Some(prev_id.clone()), Some(next_id.clone()));
+        let node = Node::new("test".to_string(), content).with_next_sibling(Some(next_id.clone()));
 
         // Test serialization
         let serialized = serde_json::to_string(&node).unwrap();
@@ -3172,7 +2998,7 @@ mod tests {
     #[test]
     fn test_node_root_optimization_basic() {
         let content = json!({"text": "Root node content"});
-        let node = Node::new(content);
+        let node = Node::new("test".to_string(), content);
 
         // New nodes should have no root information
         assert!(!node.has_root());
@@ -3188,7 +3014,7 @@ mod tests {
         let root_id = NodeId::from_string("date:2025-06-30".to_string());
         let root_type = "date".to_string();
 
-        let node = Node::new(content).with_root(root_id.clone(), root_type.clone());
+        let node = Node::new("test".to_string(), content).with_root(root_id.clone(), root_type.clone());
 
         assert!(node.has_root());
         assert_eq!(node.root_id, Some(root_id));
@@ -3201,7 +3027,7 @@ mod tests {
     #[test]
     fn test_node_as_hierarchy_root() {
         let content = json!({"date": "2025-06-30", "title": "Monday, June 30, 2025"});
-        let node = Node::new(content).as_hierarchy_root("date".to_string());
+        let node = Node::new("test".to_string(), content).as_hierarchy_root("date".to_string());
 
         assert!(node.has_root());
         assert_eq!(node.root_id, Some(node.id.clone()));
@@ -3230,7 +3056,7 @@ mod tests {
     #[test]
     fn test_node_set_root() {
         let content = json!({"text": "Test node"});
-        let mut node = Node::new(content);
+        let mut node = Node::new("test".to_string(), content);
         let root_id = NodeId::from_string("project:important".to_string());
 
         node.set_root(Some(root_id.clone()), Some("project".to_string()));
@@ -3249,7 +3075,7 @@ mod tests {
     #[test]
     fn test_root_consistency_validation() {
         let content = json!({"text": "Test node"});
-        let mut node = Node::new(content);
+        let mut node = Node::new("test".to_string(), content);
 
         // Valid states
         assert!(node.validate_root_consistency().is_ok()); // Both None
@@ -3279,7 +3105,7 @@ mod tests {
     fn test_root_optimization_serialization() {
         let content = json!({"text": "Serialization test"});
         let root_id = NodeId::from_string("area:work".to_string());
-        let node = Node::new(content).with_root(root_id.clone(), "area".to_string());
+        let node = Node::new("test".to_string(), content).with_root(root_id.clone(), "area".to_string());
 
         // Serialize and deserialize
         let serialized = serde_json::to_string(&node).unwrap();
