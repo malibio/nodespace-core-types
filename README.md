@@ -1,97 +1,153 @@
-# ⚠️ BEFORE STARTING ANY WORK
-👉 **STEP 1**: Read development workflow: `../nodespace-system-design/docs/development/workflow.md`
-👉 **STEP 2**: Check Linear for assigned tasks
-👉 **STEP 3**: Follow the MANDATORY workflow checklist in CLAUDE.md
-👉 **STEP 4**: Repository-specific patterns below
-
-**This README.md only contains**: Repository-specific type definitions and Rust patterns
-
-## 🚨 QUICK WORKFLOW COMMANDS
-
-```bash
-# Validation pipeline (run before any commit/PR)
-cargo fmt && cargo clippy -- -D warnings && cargo test --package nodespace-core-types
-
-# Start new task (replace NS-XX with your issue ID)
-mcp__linear__update_issue --id "NS-XX" --stateId "d8f2b3a6-f865-4894-a6cb-a0d76fc98d93"
-git checkout -b feature/ns-XX-description
-
-# Mark for review (after PR created)
-mcp__linear__update_issue --id "NS-XX" --stateId "bfd80919-3264-4a6e-9745-7f118b9b8932"
-
-# Mark complete (ONLY after PR merged and validated)
-mcp__linear__update_issue --id "NS-XX" --stateId "2da321bf-016e-48cc-bb6a-fbdecc044bd7"
-```
-
 # NodeSpace Core Types
 
-**Shared data structures and interfaces for NodeSpace multi-session development environment**
+**Foundational Rust types and data structures for the NodeSpace distributed system**
 
-This repository contains the **foundational types** that all other NodeSpace repositories depend on as a Cargo dependency. It provides essential data structures like `Node`, `NodeId`, and `NodeSpaceResult` that enable type-safe communication across the distributed system.
+This repository contains the essential data structures that all other NodeSpace repositories depend on as a Cargo dependency. It provides core types like `Node`, `NodeId`, and `NodeSpaceResult` that enable type-safe communication across the distributed system.
 
-## 🎯 Purpose
+## What is NodeSpace?
 
-- **Essential data types** - `Node`, `NodeId`, `NodeSpaceResult`, `NodeSpaceError`
-- **Foundational structures** - Core types needed across all services
-- **Type safety** - Ensure consistent data structures via Cargo dependencies
-- **Zero dependencies** - Pure Rust types with no external NodeSpace dependencies
+NodeSpace is a distributed knowledge management system that combines hierarchical note-taking with AI-powered search and automation. It's built as a collection of microservices that work together to provide a seamless user experience through a desktop application.
 
-## 📦 Contents
+## Repository Purpose
 
-- **`Node`** - Core entity type with serde_json::Value content
-- **`NodeId`** - Unique identifier type for entities
-- **`NodeSpaceResult<T>`** - Standard Result type for all operations
-- **`NodeSpaceError`** - Comprehensive error type with proper propagation
-- **Utility types** - Supporting structures for cross-service communication
+This repository serves as the **foundational type system** for the entire NodeSpace architecture. It defines:
 
-## 🔗 Dependencies
+- **Core data structures** that represent knowledge entities
+- **Error handling types** for consistent error propagation
+- **Result types** for standardized return values
+- **Utility types** for cross-service communication
 
-This repository has **no dependencies** on other NodeSpace repositories. All other repositories depend on this one.
+## Key Types
 
-## 🚀 Getting Started
+### `Node`
+The fundamental data structure representing any piece of knowledge in NodeSpace:
+- Hierarchical organization with parent-child relationships
+- Flexible JSON content storage
+- Metadata for AI/ML processing
+- Temporal tracking (created/updated timestamps)
+- Performance-optimized root references
 
-### **New to NodeSpace? Start Here:**
-1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
-2. **Check [Linear workspace](https://linear.app/nodespace)** - Find your current tasks (filter by `nodespace-core-types`)
-3. **Review [Development Workflow](../nodespace-system-design/docs/development/workflow.md)** - Process and procedures
-4. **See distributed service interfaces** - Services own their interface traits and import types from this repository
-5. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
+### `NodeId`
+Unique identifier type for all entities across the system:
+- UUID-based for global uniqueness
+- Serializable for network transport
+- Type-safe to prevent ID confusion
 
-### **Development Setup:**
-```bash
-# Add to your Cargo.toml
+### `NodeSpaceResult<T>`
+Standard Result type for all operations:
+- Consistent error handling across services
+- Rich error context with service attribution
+- Proper error propagation patterns
+
+### `NodeSpaceError`
+Comprehensive error type covering all failure modes:
+- Database errors (connection, query, transaction)
+- Validation errors (schema, business rules)
+- Network errors (timeouts, connectivity)
+- Processing errors (AI/ML model failures)
+- Service errors (orchestration, coordination)
+
+## AI/ML Integration
+
+This repository includes specialized types for AI/ML capabilities:
+
+### Multi-Level Embeddings
+- **Individual embeddings** - Basic content embeddings
+- **Contextual embeddings** - Enhanced with relationship context
+- **Hierarchical embeddings** - Full path context from root
+- **Performance metrics** - Tracking for optimization
+
+### Image AI Support
+- **ImageNode** - Specialized node type for images
+- **ImageMetadata** - AI-generated image analysis
+- **Multimodal embeddings** - Combined text and image vectors
+
+### Context Management
+- **ContextStrategy** - Rule-based and AI-enhanced context generation
+- **NodeContext** - Relationship-aware context building
+- **Performance tracking** - Metrics for AI operations
+
+## Architecture Role
+
+This repository sits at the foundation of the NodeSpace system:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    NodeSpace Architecture                    │
+├─────────────────────────────────────────────────────────────┤
+│  Desktop App (Tauri) - User Interface                      │
+├─────────────────────────────────────────────────────────────┤
+│  Core UI (React) - Frontend Components                     │
+├─────────────────────────────────────────────────────────────┤
+│  Core Logic - Business Orchestration                       │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │  Data Store     │  │  NLP Engine     │  │ Workflow Engine │ │
+│  │  (Vector DB)    │  │  (AI/ML)        │  │  (Automation)   │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+├─────────────────────────────────────────────────────────────┤
+│           Core Types (This Repository)                      │
+│    Node, NodeId, NodeSpaceResult, NodeSpaceError           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Development
+
+### Usage
+Add to your `Cargo.toml`:
+```toml
 [dependencies]
 nodespace-core-types = { git = "https://github.com/malibio/nodespace-core-types" }
+```
 
-# Use in your code
+Use in your code:
+```rust
 use nodespace_core_types::{Node, NodeId, NodeSpaceResult};
 ```
 
-## 🏗️ Architecture Context
-
-Part of the [NodeSpace system architecture](../nodespace-system-design/README.md):
-
-1. **`nodespace-core-types`** ← **You are here**
-2. `nodespace-data-store` - Database and vector storage
-3. `nodespace-nlp-engine` - AI/ML processing and LLM integration  
-4. `nodespace-workflow-engine` - Automation and event processing
-5. `nodespace-core-logic` - Business logic orchestration
-6. `nodespace-core-ui` - React components and UI
-7. `nodespace-desktop-app` - Tauri application shell
-
-## 🧪 Testing
-
+### Testing
 ```bash
 # Validate all contracts compile
 cargo check
 
-# Run type validation tests  
+# Run type validation tests
 cargo test
 
-# Check that other repos can use these types
-cargo test --all-features
+# Check linting
+cargo clippy -- -D warnings
 ```
 
----
+## Design Principles
 
-**Project Management:** All development tasks tracked in [Linear workspace](https://linear.app/nodespace)
+### Zero Dependencies
+This repository has **no dependencies** on other NodeSpace repositories. All other repositories depend on this one through Cargo, ensuring a clean dependency graph.
+
+### Type Safety
+All inter-service communication uses strongly-typed interfaces defined here, preventing runtime errors and ensuring API compatibility.
+
+### Performance
+Types are designed for efficiency:
+- Optimized serialization/deserialization
+- Memory-efficient representations
+- Performance feature flags for optimization
+
+### Extensibility
+The type system supports future growth:
+- Feature flags for API versioning
+- Flexible JSON content in nodes
+- Extensible error types
+- Modular AI/ML integration
+
+## Contributing
+
+This repository follows the NodeSpace development workflow. All changes must:
+1. Maintain backward compatibility
+2. Pass all tests and linting
+3. Update documentation
+4. Follow semantic versioning principles
+
+For detailed contribution guidelines, see the [NodeSpace System Design](../nodespace-system-design/README.md) repository.
+
+## License
+
+MIT License - see LICENSE file for details.
