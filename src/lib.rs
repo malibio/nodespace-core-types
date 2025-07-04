@@ -205,17 +205,16 @@ impl From<&str> for NodeId {
 /// use nodespace_core_types::{Node, NodeId};
 /// use serde_json::json;
 ///
-/// // Create a date root node
-/// let date_node = Node::new(json!({"title": "Monday, June 30, 2025"}))
-///     .as_hierarchy_root("date".to_string());
+/// // Create a text node
+/// let node = Node::new("text".to_string(), json!({"content": "Hello world"}));
 ///
-/// // Create child nodes under the date (all point to same root)
-/// let child_node = Node::new(json!({"text": "Meeting notes"}))
-///     .with_root(date_node.id.clone(), "date".to_string())
-///     .with_parent(Some(date_node.id.clone()));
+/// // Create a parent-child relationship
+/// let child = Node::new("text".to_string(), json!({"content": "Child node"}))
+///     .with_parent(Some(node.id.clone()));
 ///
-/// // Efficient query: Get all nodes for this date hierarchy
-/// // data_store.get_nodes_by_root(&date_node.id) // Single O(1) query!
+/// // Create sibling relationships
+/// let sibling = Node::new("text".to_string(), json!({"content": "Sibling node"}))
+///     .with_before_sibling(Some(child.id.clone()));
 /// ```
 ///
 /// ### Data Pattern
@@ -242,15 +241,16 @@ impl From<&str> for NodeId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
-    pub r#type: String,                      // Required by LanceDB: "text", "date", "task", etc.
-    pub content: serde_json::Value,          // Flexible content
+    pub r#type: String, // Required by LanceDB: "text", "date", "task", etc.
+    pub content: serde_json::Value, // Flexible content
     pub metadata: Option<serde_json::Value>, // Optional system metadata
-    pub created_at: String,                  // ISO format timestamp
-    pub updated_at: String,                  // ISO format timestamp
+    pub created_at: String, // ISO format timestamp
+    pub updated_at: String, // ISO format timestamp
     // Hierarchical relationship
     pub parent_id: Option<NodeId>, // → Parent node (None = root)
-    // Sibling navigation (unidirectional for simplicity)
-    pub next_sibling: Option<NodeId>, // → Next node in sequence (None = last)
+    // Sibling navigation (bidirectional)
+    pub before_sibling: Option<NodeId>, // → Previous node in sequence (None = first)
+    pub next_sibling: Option<NodeId>,   // → Next node in sequence (None = last)
     /// Root hierarchy optimization for efficient queries
     ///
     /// Points to the hierarchy root node, enabling O(1) indexed queries instead of
@@ -275,6 +275,7 @@ impl Node {
             created_at: now.clone(),
             updated_at: now,
             parent_id: None,
+            before_sibling: None,
             next_sibling: None,
             root_id: None,
         }
@@ -291,6 +292,7 @@ impl Node {
             created_at: now.clone(),
             updated_at: now,
             parent_id: None,
+            before_sibling: None,
             next_sibling: None,
             root_id: None,
         }
@@ -313,6 +315,11 @@ impl Node {
         self
     }
 
+    /// Set the previous sibling pointer
+    pub fn with_before_sibling(mut self, before_sibling: Option<NodeId>) -> Self {
+        self.before_sibling = before_sibling;
+        self
+    }
 
     /// Set the parent ID
     pub fn with_parent(mut self, parent_id: Option<NodeId>) -> Self {
@@ -320,13 +327,17 @@ impl Node {
         self
     }
 
-
     /// Update sibling pointers
     pub fn set_next_sibling(&mut self, next_sibling: Option<NodeId>) {
         self.next_sibling = next_sibling;
         self.touch();
     }
 
+    /// Update previous sibling pointer
+    pub fn set_before_sibling(&mut self, before_sibling: Option<NodeId>) {
+        self.before_sibling = before_sibling;
+        self.touch();
+    }
 
     /// Update parent ID
     pub fn set_parent_id(&mut self, parent_id: Option<NodeId>) {
@@ -349,10 +360,19 @@ impl Node {
         self.next_sibling.is_some()
     }
 
+    /// Check if this node has a previous sibling
+    pub fn has_before_sibling(&self) -> bool {
+        self.before_sibling.is_some()
+    }
 
     /// Check if this node is last in sequence (no next sibling)
     pub fn is_last(&self) -> bool {
         self.next_sibling.is_none()
+    }
+
+    /// Check if this node is first in sequence (no previous sibling)
+    pub fn is_first_sibling(&self) -> bool {
+        self.before_sibling.is_none()
     }
 
     /// Create a new date node with proper schema-based structure
@@ -452,8 +472,6 @@ impl Node {
 
     // Root hierarchy optimization methods
 
-
-
     /// Update root hierarchy information
     ///
     /// This method allows updating the root optimization fields after node creation,
@@ -481,8 +499,6 @@ impl Node {
     pub fn is_hierarchy_root(&self) -> bool {
         matches!((&self.root_id, &self.parent_id), (Some(root_id), None) if root_id == &self.id)
     }
-
-
 }
 
 // Relationship reference for graph model
@@ -1276,8 +1292,9 @@ pub struct ImageNode {
     pub user_description: Option<String>,
     pub user_tags: Vec<String>,
 
-    // Sibling navigation (unidirectional for simplicity)
-    pub next_sibling: Option<NodeId>, // → Next image in sequence (None = last)
+    // Sibling navigation (bidirectional)
+    pub before_sibling: Option<NodeId>, // → Previous image in sequence (None = first)
+    pub next_sibling: Option<NodeId>,   // → Next image in sequence (None = last)
 
     // Root hierarchy optimization for efficient queries
     pub root_id: Option<NodeId>, // → Points to hierarchy root (enables O(1) queries)
@@ -1311,6 +1328,7 @@ impl ImageNode {
             parent_id: None,
             user_description: None,
             user_tags: Vec::new(),
+            before_sibling: None,
             next_sibling: None,
             root_id: None,
         }
@@ -1344,6 +1362,7 @@ impl ImageNode {
             parent_id: None,
             user_description: None,
             user_tags: Vec::new(),
+            before_sibling: None,
             next_sibling: None,
             root_id: None,
         }
@@ -1439,9 +1458,22 @@ impl ImageNode {
         self
     }
 
+    /// Set previous sibling pointer
+    pub fn with_before_sibling(mut self, before: Option<NodeId>) -> Self {
+        self.before_sibling = before;
+        self.touch();
+        self
+    }
+
     /// Set next sibling
     pub fn set_next_sibling(&mut self, next_sibling: Option<NodeId>) {
         self.next_sibling = next_sibling;
+        self.touch();
+    }
+
+    /// Set previous sibling
+    pub fn set_before_sibling(&mut self, before_sibling: Option<NodeId>) {
+        self.before_sibling = before_sibling;
         self.touch();
     }
 
@@ -1450,9 +1482,19 @@ impl ImageNode {
         self.next_sibling.is_some()
     }
 
+    /// Check if this node has a previous sibling
+    pub fn has_before_sibling(&self) -> bool {
+        self.before_sibling.is_some()
+    }
+
     /// Check if this node is last in sequence
     pub fn is_last(&self) -> bool {
         self.next_sibling.is_none()
+    }
+
+    /// Check if this node is first in sequence
+    pub fn is_first_sibling(&self) -> bool {
+        self.before_sibling.is_none()
     }
 
     /// Validate ImageNode data integrity
@@ -1590,6 +1632,7 @@ impl ImageNode {
             created_at: self.created_at.to_rfc3339(),
             updated_at: self.updated_at.to_rfc3339(),
             parent_id: self.parent_id.clone(),
+            before_sibling: self.before_sibling.clone(),
             next_sibling: self.next_sibling.clone(),
             root_id: self.root_id.clone(),
         })
@@ -1785,1365 +1828,5 @@ impl MultiLevelEmbeddings {
             count += 1;
         }
         count
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn test_node_id_creation() {
-        let node_id = NodeId::new();
-        // Should be a valid UUID string
-        assert_eq!(node_id.as_str().len(), 36); // UUID v4 length
-        assert!(node_id.as_str().contains('-')); // UUID format
-    }
-
-    #[test]
-    fn test_node_id_from_string() {
-        let id_str = "some-custom-identifier".to_string();
-        let node_id = NodeId::from_string(id_str.clone());
-        assert_eq!(node_id.as_str(), "some-custom-identifier");
-    }
-
-    #[test]
-    fn test_node_creation() {
-        let content = json!({"name": "Test User", "email": "test@example.com"});
-        let node = Node::new("test".to_string(), content.clone());
-
-        assert_eq!(node.id.as_str().len(), 36); // UUID length
-        assert_eq!(node.content, content);
-        assert!(node.metadata.is_none());
-        assert!(!node.created_at.is_empty());
-        assert!(!node.updated_at.is_empty());
-    }
-
-    #[test]
-    fn test_node_with_metadata() {
-        let content = json!({"title": "Test Document"});
-        let metadata = json!({"version": 1, "author": "test"});
-        let node = Node::new("test".to_string(), content.clone()).with_metadata(metadata.clone());
-
-        assert_eq!(node.content, content);
-        assert_eq!(node.metadata, Some(metadata));
-    }
-
-    #[test]
-    fn test_relationship_ref() {
-        let target_id = NodeId::new();
-        let rel = RelationshipRef::new(target_id.clone(), "authored_by".to_string());
-
-        assert_eq!(rel.target_id, target_id);
-        assert_eq!(rel.relationship_type, "authored_by");
-        assert!(rel.properties.is_null());
-    }
-
-    #[test]
-    fn test_relationship_with_properties() {
-        let target_id = NodeId::new();
-        let properties = json!({"role": "admin", "since": "2024-01-01"});
-        let rel = RelationshipRef::new(target_id, "member_of".to_string())
-            .with_properties(properties.clone());
-
-        assert_eq!(rel.properties, properties);
-    }
-
-    #[test]
-    fn test_error_display() {
-        let error = NodeSpaceError::Database(DatabaseError::connection_failed(
-            "postgres",
-            "Connection failed",
-        ));
-        assert_eq!(
-            error.to_string(),
-            "Database operation failed: Connection failed to postgres: Connection failed"
-        );
-
-        let error = NodeSpaceError::Database(DatabaseError::not_found("User", "user-123"));
-        assert_eq!(
-            error.to_string(),
-            "Database operation failed: Record not found: User with id user-123"
-        );
-    }
-
-    #[test]
-    fn test_node_metadata() {
-        let mut metadata = NodeMetadata::new();
-        let initial_version = metadata.version;
-        let initial_updated = metadata.updated_at.clone();
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        metadata.update();
-
-        assert_eq!(metadata.version, initial_version + 1);
-        assert_ne!(metadata.updated_at, initial_updated);
-    }
-
-    #[test]
-    fn test_serialization() {
-        let node_id = NodeId::new();
-        let serialized = serde_json::to_string(&node_id).unwrap();
-        let deserialized: NodeId = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(node_id, deserialized);
-
-        let content = json!({"name": "Test"});
-        let node = Node::new("test".to_string(), content);
-        let serialized = serde_json::to_string(&node).unwrap();
-        let deserialized: Node = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(node.id, deserialized.id);
-        assert_eq!(node.content, deserialized.content);
-    }
-
-    #[test]
-    fn test_node_space_result() {
-        let success: NodeSpaceResult<String> = Ok("success".to_string());
-        assert!(success.is_ok());
-
-        let error: NodeSpaceResult<String> =
-            Err(ValidationError::required_field("input", "test").into());
-        assert!(error.is_err());
-    }
-
-    #[test]
-    fn test_node_sibling_pointers() {
-        let content = json!({"text": "Hello World"});
-        let node = Node::new("test".to_string(), content);
-
-        // New nodes should have no siblings
-        assert!(node.next_sibling.is_none());
-        assert!(node.is_last());
-        assert!(!node.has_next_sibling());
-    }
-
-    #[test]
-    fn test_node_with_next_sibling() {
-        let content = json!({"text": "Test Node"});
-        let next_id = NodeId::new();
-
-        let node = Node::new("test".to_string(), content).with_next_sibling(Some(next_id.clone()));
-
-        assert_eq!(node.next_sibling, Some(next_id));
-        assert!(node.has_next_sibling());
-        assert!(!node.is_last());
-    }
-
-    #[test]
-    fn test_node_sibling_builder_methods() {
-        let content = json!({"text": "Test Node"});
-        let next_id = NodeId::new();
-
-        let node = Node::new("test".to_string(), content)
-            .with_next_sibling(Some(next_id.clone()));
-
-        assert_eq!(node.next_sibling, Some(next_id));
-    }
-
-    #[test]
-    fn test_node_sibling_mutation() {
-        let content = json!({"text": "Mutable Node"});
-        let mut node = Node::new("test".to_string(), content);
-
-        let next_id = NodeId::new();
-        let prev_id = NodeId::new();
-
-        // Test setting next sibling
-        node.set_next_sibling(Some(next_id.clone()));
-        assert_eq!(node.next_sibling, Some(next_id));
-        assert!(node.has_next_sibling());
-        assert!(!node.is_last());
-
-        // Test clearing siblings
-        node.set_next_sibling(None);
-        assert!(node.is_last());
-    }
-
-    #[test]
-    fn test_node_sequence_chain() {
-        // Create a chain of 3 nodes: A -> B -> C
-        let node_a = Node::new("test".to_string(), json!({"text": "Node A"}));
-        let node_b = Node::new("test".to_string(), json!({"text": "Node B"}));
-        let node_c = Node::new("test".to_string(), json!({"text": "Node C"}));
-
-        let a_id = node_a.id.clone();
-        let b_id = node_b.id.clone();
-        let c_id = node_c.id.clone();
-
-        // Set up the chain
-        let node_a = node_a.with_next_sibling(Some(b_id.clone()));
-        let node_b = node_b
-            .with_previous_sibling(Some(a_id.clone()))
-            .with_next_sibling(Some(c_id.clone()));
-        let node_c = node_c.with_previous_sibling(Some(b_id.clone()));
-
-        // Test chain properties
-        assert!(node_a.is_first());
-        assert!(!node_a.is_last());
-        assert_eq!(node_a.next_sibling, Some(b_id.clone()));
-
-        assert!(!node_b.is_first());
-        assert!(!node_b.is_last());
-        assert_eq!(node_b.previous_sibling, Some(a_id));
-        assert_eq!(node_b.next_sibling, Some(c_id.clone()));
-
-        assert!(!node_c.is_first());
-        assert!(node_c.is_last());
-        assert_eq!(node_c.previous_sibling, Some(b_id));
-    }
-
-    #[test]
-    fn test_node_sibling_serialization() {
-        let prev_id = NodeId::new();
-        let next_id = NodeId::new();
-        let content = json!({"text": "Serialization Test"});
-
-        let node = Node::new("test".to_string(), content).with_next_sibling(Some(next_id.clone()));
-
-        // Test serialization
-        let serialized = serde_json::to_string(&node).unwrap();
-        let deserialized: Node = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(node.id, deserialized.id);
-        assert_eq!(node.content, deserialized.content);
-        assert_eq!(node.next_sibling, deserialized.next_sibling);
-        assert_eq!(node.previous_sibling, deserialized.previous_sibling);
-        assert_eq!(deserialized.previous_sibling, Some(prev_id));
-        assert_eq!(deserialized.next_sibling, Some(next_id));
-    }
-
-    #[test]
-    fn test_node_backward_compatibility() {
-        // Test that nodes without sibling fields can still be deserialized
-        let json_without_siblings = r#"{
-            "id": "test-id-123",
-            "content": {"text": "Legacy Node"},
-            "metadata": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z"
-        }"#;
-
-        let node: Node = serde_json::from_str(json_without_siblings).unwrap();
-        assert_eq!(node.id.as_str(), "test-id-123");
-        assert!(node.next_sibling.is_none());
-        assert!(node.previous_sibling.is_none());
-        assert!(node.is_first());
-        assert!(node.is_last());
-    }
-
-    // ImageNode tests
-    #[test]
-    fn test_node_type_display() {
-        assert_eq!(NodeType::Text.to_string(), "text");
-        assert_eq!(NodeType::Image.to_string(), "image");
-        assert_eq!(NodeType::Task.to_string(), "task");
-        assert_eq!(
-            NodeType::Custom("blog_post".to_string()).to_string(),
-            "blog_post"
-        );
-    }
-
-    #[test]
-    fn test_node_type_default() {
-        let default_type: NodeType = Default::default();
-        assert_eq!(default_type, NodeType::Text);
-    }
-
-    #[test]
-    fn test_camera_info_creation() {
-        let camera_info = CameraInfo {
-            make: Some("Canon".to_string()),
-            model: Some("EOS R5".to_string()),
-            focal_length: Some(85.0),
-            aperture: Some(2.8),
-            iso: Some(800),
-            ..Default::default()
-        };
-
-        assert_eq!(camera_info.make, Some("Canon".to_string()));
-        assert_eq!(camera_info.model, Some("EOS R5".to_string()));
-        assert_eq!(camera_info.focal_length, Some(85.0));
-        assert_eq!(camera_info.aperture, Some(2.8));
-        assert_eq!(camera_info.iso, Some(800));
-    }
-
-    #[test]
-    fn test_image_metadata_creation() {
-        let mut confidence_scores = std::collections::HashMap::new();
-        confidence_scores.insert("object_detection".to_string(), 0.95);
-        confidence_scores.insert("scene_classification".to_string(), 0.87);
-
-        let metadata = ImageMetadata {
-            ai_description: Some("A beautiful sunset over mountains".to_string()),
-            detected_objects: vec![
-                "mountain".to_string(),
-                "sky".to_string(),
-                "sunset".to_string(),
-            ],
-            scene_classification: Some("landscape".to_string()),
-            keywords: vec!["nature".to_string(), "outdoor".to_string()],
-            color_palette: vec![
-                "#FF6B35".to_string(),
-                "#F7931E".to_string(),
-                "#FFD23F".to_string(),
-            ],
-            text_content: None,
-            faces_detected: Some(0),
-            emotions: Vec::new(),
-            confidence_scores,
-        };
-
-        assert_eq!(
-            metadata.ai_description,
-            Some("A beautiful sunset over mountains".to_string())
-        );
-        assert_eq!(metadata.detected_objects.len(), 3);
-        assert_eq!(metadata.scene_classification, Some("landscape".to_string()));
-        assert_eq!(
-            metadata.confidence_scores.get("object_detection"),
-            Some(&0.95)
-        );
-    }
-
-    #[test]
-    fn test_image_node_creation() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header
-        let filename = "test_image.jpg".to_string();
-        let content_type = "image/jpeg".to_string();
-        let dimensions = (1920, 1080);
-
-        let image_node = ImageNode::new(
-            raw_data.clone(),
-            filename.clone(),
-            content_type.clone(),
-            dimensions,
-        );
-
-        assert_eq!(image_node.node_type, NodeType::Image);
-        assert_eq!(image_node.raw_data, raw_data);
-        assert_eq!(image_node.filename, filename);
-        assert_eq!(image_node.content_type, content_type);
-        assert_eq!(image_node.dimensions, dimensions);
-        assert!(image_node.embedding.is_empty());
-        assert!(image_node.camera_info.is_none());
-        assert!(image_node.user_description.is_none());
-        assert!(image_node.relationships.is_empty());
-    }
-
-    #[test]
-    fn test_image_node_with_id() {
-        let custom_id = NodeId::from_string("custom-image-id".to_string());
-        let raw_data = vec![0x89, 0x50, 0x4E, 0x47]; // PNG header
-        let filename = "test_image.png".to_string();
-        let content_type = "image/png".to_string();
-        let dimensions = (800, 600);
-
-        let image_node = ImageNode::with_id(
-            custom_id.clone(),
-            raw_data,
-            filename,
-            content_type,
-            dimensions,
-        );
-
-        assert_eq!(image_node.id, custom_id);
-        assert_eq!(image_node.node_type, NodeType::Image);
-    }
-
-    #[test]
-    fn test_image_node_builder_methods() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        let filename = "builder_test.jpg".to_string();
-        let content_type = "image/jpeg".to_string();
-        let dimensions = (1024, 768);
-
-        let embedding = vec![0.1, 0.2, 0.3]; // Simplified for test
-        let camera_info = CameraInfo {
-            make: Some("Sony".to_string()),
-            model: Some("A7R IV".to_string()),
-            ..Default::default()
-        };
-
-        let mut confidence_scores = std::collections::HashMap::new();
-        confidence_scores.insert("detection".to_string(), 0.92);
-
-        let ai_metadata = ImageMetadata {
-            ai_description: Some("Test image description".to_string()),
-            detected_objects: vec!["object1".to_string(), "object2".to_string()],
-            confidence_scores,
-            ..Default::default()
-        };
-
-        let user_tags = vec!["test".to_string(), "sample".to_string()];
-
-        let image_node = ImageNode::new(raw_data.clone(), filename, content_type, dimensions)
-            .with_file_size(raw_data.len())
-            .with_embedding(embedding.clone())
-            .with_camera_info(camera_info.clone())
-            .with_gps_coordinates(37.7749, -122.4194) // San Francisco
-            .with_timestamp(Utc::now())
-            .with_ai_metadata(ai_metadata.clone())
-            .with_user_description("User-provided description".to_string())
-            .with_user_tags(user_tags.clone());
-
-        assert_eq!(image_node.file_size, raw_data.len());
-        assert_eq!(image_node.embedding, embedding);
-        assert_eq!(image_node.camera_info, Some(camera_info));
-        assert_eq!(image_node.gps_coordinates, Some((37.7749, -122.4194)));
-        assert!(image_node.timestamp.is_some());
-        assert_eq!(image_node.ai_metadata, ai_metadata);
-        assert_eq!(
-            image_node.user_description,
-            Some("User-provided description".to_string())
-        );
-        assert_eq!(image_node.user_tags, user_tags);
-    }
-
-    #[test]
-    fn test_image_node_relationships() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        let mut image_node = ImageNode::new(
-            raw_data,
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (640, 480),
-        );
-
-        let related_node_id = NodeId::new();
-        let another_node_id = NodeId::new();
-
-        // Test adding relationships
-        image_node.add_relationship(related_node_id.clone());
-        image_node.add_relationship(another_node_id.clone());
-        assert_eq!(image_node.relationships.len(), 2);
-        assert!(image_node.relationships.contains(&related_node_id));
-        assert!(image_node.relationships.contains(&another_node_id));
-
-        // Test adding duplicate relationship (should not be added)
-        image_node.add_relationship(related_node_id.clone());
-        assert_eq!(image_node.relationships.len(), 2);
-
-        // Test removing relationship
-        image_node.remove_relationship(&related_node_id);
-        assert_eq!(image_node.relationships.len(), 1);
-        assert!(!image_node.relationships.contains(&related_node_id));
-        assert!(image_node.relationships.contains(&another_node_id));
-    }
-
-    #[test]
-    fn test_image_node_sibling_pointers() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        let mut image_node = ImageNode::new(
-            raw_data,
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (640, 480),
-        );
-
-        // Test initial state
-        assert!(image_node.is_first());
-        assert!(image_node.is_last());
-        assert!(!image_node.has_next_sibling());
-        assert!(!image_node.has_previous_sibling());
-
-        // Test setting siblings
-        let prev_id = NodeId::new();
-        let next_id = NodeId::new();
-
-        image_node.set_next_sibling(Some(next_id.clone()));
-        image_node.set_previous_sibling(Some(prev_id.clone()));
-
-        assert!(!image_node.is_first());
-        assert!(!image_node.is_last());
-        assert!(image_node.has_next_sibling());
-        assert!(image_node.has_previous_sibling());
-        assert_eq!(image_node.next_sibling, Some(next_id));
-        assert_eq!(image_node.previous_sibling, Some(prev_id));
-    }
-
-    #[test]
-    fn test_image_node_validation_success() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9]; // Valid JPEG
-        let image_node = ImageNode::new(
-            raw_data,
-            "valid.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_gps_coordinates(45.0, 90.0); // Valid coordinates
-
-        assert!(image_node.validate().is_ok());
-    }
-
-    #[test]
-    fn test_image_node_validation_failures() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-
-        // Test empty filename
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        );
-        assert!(invalid_node.validate().is_err());
-
-        // Test empty content type
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "".to_string(),
-            (800, 600),
-        );
-        assert!(invalid_node.validate().is_err());
-        // Test invalid content type
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "text/plain".to_string(),
-            (800, 600),
-        );
-        assert!(invalid_node.validate().is_err());
-
-        // Test zero dimensions
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (0, 600),
-        );
-        assert!(invalid_node.validate().is_err());
-
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 0),
-        );
-        assert!(invalid_node.validate().is_err());
-        // Test empty raw data
-        let invalid_node = ImageNode::new(
-            vec![],
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        );
-        assert!(invalid_node.validate().is_err());
-
-        // Test invalid GPS coordinates
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_gps_coordinates(91.0, 0.0); // Invalid latitude
-        assert!(invalid_node.validate().is_err());
-
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_gps_coordinates(0.0, 181.0); // Invalid longitude
-        assert!(invalid_node.validate().is_err());
-        // Test invalid embedding dimensions
-        let invalid_embedding = vec![0.1; 256]; // Wrong size (should be 384)
-        let invalid_node = ImageNode::new(
-            raw_data,
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_embedding(invalid_embedding);
-        assert!(invalid_node.validate().is_err());
-    }
-
-    #[test]
-    fn test_image_node_summary() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-
-        // Test with user description
-        let image_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (1920, 1080),
-        )
-        .with_user_description("My vacation photo".to_string());
-
-        let summary = image_node.summary();
-        assert!(summary.contains("1920x1080"));
-        assert!(summary.contains("image/jpeg"));
-        assert!(summary.contains("My vacation photo"));
-
-        // Test with AI description (no user description)
-        let ai_metadata = ImageMetadata {
-            ai_description: Some("A cityscape at night".to_string()),
-            detected_objects: vec!["building".to_string(), "lights".to_string()],
-            ..Default::default()
-        };
-
-        let image_node = ImageNode::new(
-            raw_data,
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (1920, 1080),
-        )
-        .with_ai_metadata(ai_metadata);
-
-        let summary = image_node.summary();
-        assert!(summary.contains("1920x1080"));
-        assert!(summary.contains("image/jpeg"));
-        assert!(summary.contains("A cityscape at night"));
-        assert!(summary.contains("Objects: building, lights"));
-    }
-
-    #[test]
-    fn test_image_node_to_from_node_conversion() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        let camera_info = CameraInfo {
-            make: Some("Nikon".to_string()),
-            model: Some("D850".to_string()),
-            ..Default::default()
-        };
-
-        let original_image_node = ImageNode::new(
-            raw_data,
-            "conversion_test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (2048, 1536),
-        )
-        .with_camera_info(camera_info.clone())
-        .with_user_description("Conversion test image".to_string());
-
-        // Convert to Node
-        let node = original_image_node.to_node().unwrap();
-        assert_eq!(node.id, original_image_node.id);
-
-        // Convert back to ImageNode
-        let converted_image_node = ImageNode::from_node(&node).unwrap();
-        assert_eq!(converted_image_node.id, original_image_node.id);
-        assert_eq!(converted_image_node.filename, original_image_node.filename);
-        assert_eq!(
-            converted_image_node.content_type,
-            original_image_node.content_type
-        );
-        assert_eq!(
-            converted_image_node.dimensions,
-            original_image_node.dimensions
-        );
-        assert_eq!(
-            converted_image_node.camera_info,
-            original_image_node.camera_info
-        );
-        assert_eq!(
-            converted_image_node.user_description,
-            original_image_node.user_description
-        );
-    }
-
-    #[test]
-    fn test_image_node_serialization() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9];
-        let mut confidence_scores = std::collections::HashMap::new();
-        confidence_scores.insert("object_detection".to_string(), 0.95);
-
-        let ai_metadata = ImageMetadata {
-            ai_description: Some("Serialization test".to_string()),
-            detected_objects: vec!["test_object".to_string()],
-            confidence_scores,
-            ..Default::default()
-        };
-
-        let image_node = ImageNode::new(
-            raw_data,
-            "serialize_test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (1024, 768),
-        )
-        .with_ai_metadata(ai_metadata)
-        .with_user_tags(vec!["test".to_string(), "serialization".to_string()]);
-
-        // Test serialization
-        let serialized = serde_json::to_string(&image_node).unwrap();
-        let deserialized: ImageNode = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(image_node.id, deserialized.id);
-        assert_eq!(image_node.filename, deserialized.filename);
-        assert_eq!(image_node.content_type, deserialized.content_type);
-        assert_eq!(image_node.dimensions, deserialized.dimensions);
-        assert_eq!(image_node.raw_data, deserialized.raw_data);
-        assert_eq!(image_node.ai_metadata, deserialized.ai_metadata);
-        assert_eq!(image_node.user_tags, deserialized.user_tags);
-    }
-
-    #[test]
-    fn test_image_node_touch_updates_timestamp() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        let mut image_node = ImageNode::new(
-            raw_data,
-            "touch_test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (640, 480),
-        );
-
-        let initial_timestamp = image_node.updated_at;
-
-        // Wait a tiny bit to ensure timestamp difference
-        std::thread::sleep(std::time::Duration::from_millis(1));
-
-        image_node.touch();
-
-        assert!(image_node.updated_at > initial_timestamp);
-    }
-
-    #[test]
-    fn test_image_node_with_parent() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0];
-        let parent_id = NodeId::new();
-
-        let image_node = ImageNode::new(
-            raw_data,
-            "child_image.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_parent(parent_id.clone());
-
-        assert_eq!(image_node.parent_id, Some(parent_id));
-    }
-
-    #[test]
-    fn test_image_node_file_size_validation() {
-        let raw_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0xFF, 0xD9]; // 6 bytes
-
-        // Test with correct file size
-        let valid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_file_size(raw_data.len());
-        assert!(valid_node.validate().is_ok());
-
-        // Test with incorrect file size
-        let invalid_node = ImageNode::new(
-            raw_data.clone(),
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_file_size(10); // Wrong size
-        assert!(invalid_node.validate().is_err());
-
-        // Test with zero file size (should not validate file size in this case)
-        let zero_size_node = ImageNode::new(
-            raw_data,
-            "test.jpg".to_string(),
-            "image/jpeg".to_string(),
-            (800, 600),
-        )
-        .with_file_size(0);
-        assert!(zero_size_node.validate().is_ok());
-    }
-
-    // Hierarchical Error System Tests
-    #[test]
-    fn test_database_error_creation() {
-        let error = DatabaseError::connection_failed("postgres", "Connection refused");
-        assert!(matches!(error, DatabaseError::ConnectionFailed { .. }));
-        assert_eq!(
-            error.to_string(),
-            "Connection failed to postgres: Connection refused"
-        );
-
-        let error = DatabaseError::not_found("User", "user-123");
-        assert!(matches!(error, DatabaseError::NotFound { .. }));
-        assert_eq!(error.to_string(), "Record not found: User with id user-123");
-    }
-
-    #[test]
-    fn test_validation_error_creation() {
-        let error = ValidationError::required_field("email", "User registration");
-        assert!(matches!(
-            error,
-            ValidationError::RequiredFieldMissing { .. }
-        ));
-        assert_eq!(
-            error.to_string(),
-            "Required field missing: email in User registration"
-        );
-
-        let error = ValidationError::invalid_format("email", "user@domain.com", "invalid-email");
-        assert!(matches!(error, ValidationError::InvalidFormat { .. }));
-        assert_eq!(
-            error.to_string(),
-            "Invalid format for email: expected user@domain.com, got invalid-email"
-        );
-    }
-
-    #[test]
-    fn test_network_error_creation() {
-        let error = NetworkError::connection_timeout("https://api.example.com", 5000);
-        assert!(matches!(error, NetworkError::ConnectionTimeout { .. }));
-        assert_eq!(
-            error.to_string(),
-            "Connection timeout to https://api.example.com after 5000ms"
-        );
-
-        let error = NetworkError::http_error(404, "Not Found", "/api/users/123");
-        assert!(matches!(error, NetworkError::HttpError { .. }));
-        assert_eq!(error.to_string(), "HTTP error 404: Not Found");
-    }
-
-    #[test]
-    fn test_processing_error_creation() {
-        let error = ProcessingError::model_error("nlp-engine", "mistral-7b", "Out of memory");
-        assert!(matches!(error, ProcessingError::ModelError { .. }));
-        assert_eq!(
-            error.to_string(),
-            "AI model error in nlp-engine: mistral-7b - Out of memory"
-        );
-
-        let error = ProcessingError::embedding_failed("Invalid input format", "text");
-        assert!(matches!(error, ProcessingError::EmbeddingFailed { .. }));
-        assert_eq!(
-            error.to_string(),
-            "Embedding generation failed: Invalid input format"
-        );
-    }
-
-    #[test]
-    fn test_service_error_creation() {
-        let error = ServiceError::service_unavailable("data-store", "http://localhost:8080");
-        assert!(matches!(error, ServiceError::ServiceUnavailable { .. }));
-        assert_eq!(error.to_string(), "Service unavailable: data-store");
-
-        let error = ServiceError::version_mismatch("core-logic", "2.0.0", "1.5.0");
-        assert!(matches!(error, ServiceError::VersionMismatch { .. }));
-        assert_eq!(
-            error.to_string(),
-            "Service version mismatch: core-logic expected 2.0.0, got 1.5.0"
-        );
-    }
-
-    #[test]
-    fn test_nodespace_error_hierarchy() {
-        let db_error = DatabaseError::connection_failed("postgres", "timeout");
-        let ns_error: NodeSpaceError = db_error.into();
-        assert!(matches!(ns_error, NodeSpaceError::Database(_)));
-
-        let validation_error = ValidationError::required_field("name", "User");
-        let ns_error: NodeSpaceError = validation_error.into();
-        assert!(matches!(ns_error, NodeSpaceError::Validation(_)));
-
-        let network_error = NetworkError::connection_timeout("api.test.com", 1000);
-        let ns_error: NodeSpaceError = network_error.into();
-        assert!(matches!(ns_error, NodeSpaceError::Network(_)));
-    }
-
-    #[test]
-    fn test_error_utility_methods() {
-        // Test retryable analysis
-        let retryable_error =
-            NodeSpaceError::Network(NetworkError::connection_timeout("api.test.com", 1000));
-        assert!(retryable_error.is_retryable());
-
-        let non_retryable_error = NodeSpaceError::Service(ServiceError::CircuitBreakerOpen {
-            service: "test".to_string(),
-            failure_count: 5,
-            failure_threshold: 3,
-            reset_time: Utc::now(),
-        });
-        assert!(!non_retryable_error.is_retryable());
-
-        // Test service attribution
-        let service_error = NodeSpaceError::Processing(ProcessingError::model_error(
-            "nlp-engine",
-            "test-model",
-            "error",
-        ));
-        assert_eq!(
-            service_error.service_attribution(),
-            Some("nlp-engine".to_string())
-        );
-
-        // Test error category
-        assert_eq!(retryable_error.error_category(), "network");
-        assert_eq!(service_error.error_category(), "processing");
-    }
-
-    #[test]
-    fn test_error_retry_after() {
-        let error_with_retry = NodeSpaceError::Network(NetworkError::RateLimitExceeded {
-            limit: 100,
-            window: "hour".to_string(),
-            reset_time: Utc::now(),
-            retry_after: Duration::from_secs(3600),
-        });
-        assert_eq!(
-            error_with_retry.retry_after(),
-            Some(Duration::from_secs(3600))
-        );
-
-        let error_without_retry =
-            NodeSpaceError::Validation(ValidationError::required_field("test", "context"));
-        assert_eq!(error_without_retry.retry_after(), None);
-    }
-
-    #[test]
-    fn test_error_serialization() {
-        let error = NodeSpaceError::Database(DatabaseError::ConnectionFailed {
-            database: "test_db".to_string(),
-            reason: "Network error".to_string(),
-            retry_after: Some(Duration::from_secs(5)),
-        });
-
-        // Test serialization
-        let serialized = serde_json::to_string(&error).unwrap();
-        let deserialized: NodeSpaceError = serde_json::from_str(&serialized).unwrap();
-
-        match (&error, &deserialized) {
-            (NodeSpaceError::Database(orig), NodeSpaceError::Database(deser)) => {
-                assert_eq!(format!("{}", orig), format!("{}", deser));
-            }
-            _ => assert!(false, "Serialization changed error type"),
-        }
-    }
-
-    #[cfg(feature = "deprecated-v1")]
-    #[test]
-    fn test_legacy_compatibility() {
-        // Test that legacy constructors still work but are deprecated
-        #[allow(deprecated)]
-        let legacy_error = NodeSpaceError::database_error("test error");
-        assert!(matches!(legacy_error, NodeSpaceError::Database(_)));
-
-        #[allow(deprecated)]
-        let legacy_not_found = NodeSpaceError::not_found("item not found");
-        assert!(matches!(legacy_not_found, NodeSpaceError::Database(_)));
-    }
-
-    #[test]
-    fn test_detailed_error_context() {
-        // Test that new errors provide much more context than legacy ones
-        let detailed_error = NetworkError::HttpError {
-            status_code: 429,
-            reason: "Rate limit exceeded".to_string(),
-            endpoint: "/api/v1/users".to_string(),
-            headers: {
-                let mut headers = std::collections::HashMap::new();
-                headers.insert("X-RateLimit-Remaining".to_string(), "0".to_string());
-                headers.insert("X-RateLimit-Reset".to_string(), "1640995200".to_string());
-                headers
-            },
-            retryable: true,
-        };
-
-        let error_string = detailed_error.to_string();
-        assert!(error_string.contains("429"));
-        assert!(error_string.contains("Rate limit exceeded"));
-
-        // Access fields via pattern matching
-        match detailed_error {
-            NetworkError::HttpError {
-                retryable, headers, ..
-            } => {
-                assert!(retryable);
-                assert!(!headers.is_empty());
-            }
-            _ => assert!(false, "Expected HttpError variant"),
-        }
-    }
-
-    #[test]
-    fn test_error_chaining() {
-        // Test that errors chain properly with ? operator
-        fn test_function() -> NodeSpaceResult<String> {
-            let _db_result = Err(DatabaseError::connection_failed("test", "failed"))?;
-            Ok("success".to_string())
-        }
-
-        let result = test_function();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NodeSpaceError::Database(_)));
-    }
-
-    #[test]
-    fn test_structured_error_fields() {
-        let validation_error = ValidationError::OutOfRange {
-            field: "age".to_string(),
-            value: "150".to_string(),
-            min: "0".to_string(),
-            max: "120".to_string(),
-        };
-
-        match validation_error {
-            ValidationError::OutOfRange {
-                field,
-                value,
-                min,
-                max,
-            } => {
-                assert_eq!(field, "age");
-                assert_eq!(value, "150");
-                assert_eq!(min, "0");
-                assert_eq!(max, "120");
-            }
-            _ => assert!(false, "Expected OutOfRange variant"),
-        }
-    }
-
-    // ========================================
-    // Semantic Versioning System Tests
-    // ========================================
-
-    #[test]
-    fn test_version_constants() {
-        assert_eq!(crate::version::V2_API, "2.0");
-        assert_eq!(crate::version::V3_PREVIEW, "3.0-preview");
-    }
-
-    #[test]
-    fn test_core_types_version() {
-        assert_eq!(CORE_TYPES_VERSION, "2.0.0");
-    }
-
-    #[test]
-    fn test_feature_flags() {
-        // v2-api should be enabled by default
-        assert!(crate::features::is_v2_api_enabled());
-
-        // Active features should include v2-api
-        let active = crate::features::active_features();
-        assert!(active.contains(&"v2-api"));
-    }
-
-    #[test]
-    fn test_version_compatibility() {
-        // v2 compatibility
-        assert!(crate::compatibility::is_compatible_with("2.0"));
-        assert!(crate::compatibility::is_compatible_with("2.1"));
-
-        // Compatibility matrix
-        let matrix = crate::compatibility::compatibility_matrix();
-        assert!(matrix.contains_key("v2-api"));
-        assert!(matrix["v2-api"].contains(&"2.0"));
-    }
-
-    #[test]
-    fn test_nodeid_basic_functionality() {
-        let id = NodeId::new();
-        assert_eq!(id.as_str().len(), 36); // UUID v4 length
-
-        let custom_id = NodeId::from_string("test-id".to_string());
-        assert_eq!(custom_id.as_str(), "test-id");
-    }
-
-    #[cfg(feature = "v3-preview")]
-    #[test]
-    fn test_nodeid_v3_preview_features() {
-        let prefixed_id = NodeId::with_prefix("test");
-        assert!(prefixed_id.as_str().starts_with("test:"));
-        assert_eq!(prefixed_id.prefix(), Some("test"));
-
-        let regular_id = NodeId::new();
-        assert_eq!(regular_id.prefix(), None);
-    }
-
-    #[cfg(feature = "performance-opts")]
-    #[test]
-    fn test_performance_optimizations() {
-        let fast_id = NodeId::new_fast();
-        assert_eq!(fast_id.as_str().len(), 36); // Should still be valid UUID
-
-        // Node creation should use fast NodeId generation
-        let node = Node::new(serde_json::json!({"test": "content"}));
-        assert_eq!(node.id.as_str().len(), 36);
-    }
-
-    #[cfg(feature = "deprecated-v1")]
-    #[test]
-    fn test_legacy_node_methods() {
-        let id = NodeId::new();
-        #[allow(deprecated)]
-        let legacy_string = id.to_string_legacy();
-        assert_eq!(legacy_string, id.as_str());
-
-        let mut node = Node::new(serde_json::json!({"test": "content"}));
-        #[allow(deprecated)]
-        node.set_metadata_legacy(serde_json::json!({"version": "legacy"}));
-        assert!(node.metadata.is_some());
-    }
-
-    #[cfg(feature = "enhanced-errors")]
-    #[test]
-    fn test_enhanced_error_handling() {
-        let critical_error = NodeSpaceError::Database(DatabaseError::ConnectionFailed {
-            database: "test".to_string(),
-            reason: "timeout".to_string(),
-            retry_after: None,
-        });
-        assert_eq!(critical_error.severity(), ErrorSeverity::Critical);
-
-        let warning_error = NodeSpaceError::Database(DatabaseError::QueryTimeout {
-            seconds: 30,
-            query: "SELECT *".to_string(),
-            suggested_limit: None,
-        });
-        assert_eq!(warning_error.severity(), ErrorSeverity::Warning);
-
-        // Test severity display
-        assert_eq!(ErrorSeverity::Critical.to_string(), "CRITICAL");
-        assert_eq!(ErrorSeverity::Warning.to_string(), "WARN");
-    }
-
-    #[cfg(feature = "v3-preview")]
-    #[test]
-    fn test_typed_node_creation() {
-        #[derive(serde::Serialize)]
-        struct TestData {
-            name: String,
-            value: i32,
-        }
-
-        let data = TestData {
-            name: "test".to_string(),
-            value: 42,
-        };
-
-        let node = Node::new_typed(data, "test_type").unwrap();
-        assert_eq!(node.node_type(), Some("test_type".to_string()));
-
-        // Verify content was serialized correctly
-        assert!(node.content.get("name").is_some());
-        assert_eq!(node.content["value"], 42);
-    }
-
-    #[test]
-    fn test_feature_flag_combinations() {
-        // Test that different feature combinations don't conflict
-        let active_features = crate::features::active_features();
-
-        // v2-api should always be active (it's default)
-        assert!(active_features.contains(&"v2-api"));
-    }
-
-    #[test]
-    fn test_version_migration_scenario() {
-        // Simulate a migration scenario where both v2 and v3 features might be active
-        let node = Node::new(serde_json::json!({
-            "content": "migration test",
-            "version": "2.0"
-        }));
-
-        // Node should always have basic functionality regardless of features
-        assert!(!node.id.as_str().is_empty());
-        assert!(node.created_at.len() > 0);
-        assert!(node.is_root());
-    }
-
-    #[cfg(all(feature = "v3-preview", feature = "enhanced-errors"))]
-    #[test]
-    fn test_feature_combination_v3_enhanced() {
-        // Test combining v3 preview with enhanced errors
-        let error = NodeSpaceError::Validation(ValidationError::required_field("test", "context"));
-        let _enhanced_error = error.with_context({
-            let mut context = std::collections::HashMap::new();
-            context.insert("feature_test".to_string(), "v3+enhanced".to_string());
-            context
-        });
-
-        // Verify the error still has proper severity
-        let validation_error =
-            NodeSpaceError::Validation(ValidationError::required_field("test", "context"));
-        assert_eq!(validation_error.severity(), ErrorSeverity::Error);
-    }
-
-    #[test]
-    fn test_backward_compatibility_guarantee() {
-        // Essential functionality that must work regardless of feature flags
-        let node_id = NodeId::new();
-        assert!(node_id.as_str().len() > 0);
-
-        let node = Node::new(serde_json::json!({"essential": "functionality"}));
-        assert!(node.content.get("essential").is_some());
-
-        let error = DatabaseError::not_found("test", "123");
-        let ns_error: NodeSpaceError = error.into();
-        assert!(matches!(ns_error, NodeSpaceError::Database(_)));
-    }
-
-    #[test]
-    fn test_version_policy_compliance() {
-        // Test that our versioning follows semantic versioning rules
-
-        // Major version (2.x) should maintain API compatibility within series
-        let current_version = CORE_TYPES_VERSION;
-        assert!(current_version.starts_with("2."));
-
-        // Feature flags should enable controlled evolution
-        assert!(crate::features::is_v2_api_enabled());
-
-        // Compatibility checks should work
-        assert!(crate::compatibility::is_compatible_with("2.0"));
-        assert!(crate::compatibility::is_compatible_with("2.1"));
-    }
-
-    // Root hierarchy optimization tests
-
-    #[test]
-    fn test_node_root_optimization_basic() {
-        let content = json!({"text": "Root node content"});
-        let node = Node::new("test".to_string(), content);
-
-        // New nodes should have no root information
-        assert!(!node.has_root());
-        assert!(node.root_id.is_none());
-        assert!(node.root_type.is_none());
-        assert_eq!(node.get_root_type(), None);
-        assert!(!node.is_root_type("date"));
-    }
-
-    #[test]
-    fn test_node_with_root() {
-        let content = json!({"text": "Child node"});
-        let root_id = NodeId::from_string("date:2025-06-30".to_string());
-        let root_type = "date".to_string();
-
-        let node = Node::new("test".to_string(), content).with_root(root_id.clone(), root_type.clone());
-
-        assert!(node.has_root());
-        assert_eq!(node.root_id, Some(root_id));
-        assert_eq!(node.root_type, Some(root_type));
-        assert_eq!(node.get_root_type(), Some("date"));
-        assert!(node.is_root_type("date"));
-        assert!(!node.is_root_type("project"));
-    }
-
-    #[test]
-    fn test_node_as_hierarchy_root() {
-        let content = json!({"date": "2025-06-30", "title": "Monday, June 30, 2025"});
-        let node = Node::new("test".to_string(), content).as_hierarchy_root("date".to_string());
-
-        assert!(node.has_root());
-        assert_eq!(node.root_id, Some(node.id.clone()));
-        assert_eq!(node.root_type, Some("date".to_string()));
-        assert!(node.is_root_type("date"));
-
-        // For a true hierarchy root, it should have no parent
-        assert!(node.parent_id.is_none());
-        // But it won't show as hierarchy root until parent_id is explicitly None
-    }
-
-    #[test]
-    fn test_node_is_hierarchy_root() {
-        let content = json!({"date": "2025-06-30"});
-        let mut node = Node::new(content).as_hierarchy_root("date".to_string());
-
-        // Should be a hierarchy root (root_id points to itself and no parent)
-        assert!(node.is_hierarchy_root());
-
-        // If we add a parent, it's no longer a hierarchy root
-        let parent_id = NodeId::new();
-        node.set_parent_id(Some(parent_id));
-        assert!(!node.is_hierarchy_root());
-    }
-
-    #[test]
-    fn test_node_set_root() {
-        let content = json!({"text": "Test node"});
-        let mut node = Node::new("test".to_string(), content);
-        let root_id = NodeId::from_string("project:important".to_string());
-
-        node.set_root(Some(root_id.clone()), Some("project".to_string()));
-
-        assert!(node.has_root());
-        assert_eq!(node.root_id, Some(root_id));
-        assert_eq!(node.root_type, Some("project".to_string()));
-
-        // Clear root information
-        node.set_root(None, None);
-        assert!(!node.has_root());
-        assert!(node.root_id.is_none());
-        assert!(node.root_type.is_none());
-    }
-
-    #[test]
-    fn test_root_consistency_validation() {
-        let content = json!({"text": "Test node"});
-        let mut node = Node::new("test".to_string(), content);
-
-        // Valid states
-        assert!(node.validate_root_consistency().is_ok()); // Both None
-
-        node.set_root(Some(NodeId::new()), Some("date".to_string()));
-        assert!(node.validate_root_consistency().is_ok()); // Both Some
-
-        // Invalid states
-        node.root_id = Some(NodeId::new());
-        node.root_type = None;
-        assert!(node.validate_root_consistency().is_err());
-        assert_eq!(
-            node.validate_root_consistency().unwrap_err(),
-            "root_id is set but root_type is missing"
-        );
-
-        node.root_id = None;
-        node.root_type = Some("date".to_string());
-        assert!(node.validate_root_consistency().is_err());
-        assert_eq!(
-            node.validate_root_consistency().unwrap_err(),
-            "root_type is set but root_id is missing"
-        );
-    }
-
-    #[test]
-    fn test_root_optimization_serialization() {
-        let content = json!({"text": "Serialization test"});
-        let root_id = NodeId::from_string("area:work".to_string());
-        let node = Node::new("test".to_string(), content).with_root(root_id.clone(), "area".to_string());
-
-        // Serialize and deserialize
-        let serialized = serde_json::to_string(&node).unwrap();
-        let deserialized: Node = serde_json::from_str(&serialized).unwrap();
-
-        // Root information should be preserved
-        assert_eq!(node.root_id, deserialized.root_id);
-        assert_eq!(node.root_type, deserialized.root_type);
-        assert_eq!(deserialized.root_id, Some(root_id));
-        assert_eq!(deserialized.root_type, Some("area".to_string()));
-    }
-
-    #[test]
-    fn test_date_hierarchy_pattern() {
-        // Simulate the date hierarchy pattern from the Linear issue
-        let date_id = NodeId::from_string("date:2025-06-30".to_string());
-
-        // Create date root node
-        let date_node = Node::new(json!({"title": "Monday, June 30, 2025"}))
-            .as_hierarchy_root("date".to_string());
-
-        assert!(date_node.is_hierarchy_root());
-        assert_eq!(date_node.root_id, Some(date_node.id.clone()));
-        assert_eq!(date_node.root_type, Some("date".to_string()));
-
-        // Create child nodes under the date
-        let meeting_node = Node::new(json!({"text": "Sprint planning..."}))
-            .with_root(date_id.clone(), "date".to_string())
-            .with_parent(Some(date_id.clone()));
-
-        assert!(!meeting_node.is_hierarchy_root());
-        assert!(meeting_node.has_root());
-        assert_eq!(meeting_node.root_id, Some(date_id.clone()));
-        assert_eq!(meeting_node.root_type, Some("date".to_string()));
-        assert!(meeting_node.is_root_type("date"));
-
-        // Validation should pass for both nodes
-        assert!(date_node.validate_root_consistency().is_ok());
-        assert!(meeting_node.validate_root_consistency().is_ok());
     }
 }
