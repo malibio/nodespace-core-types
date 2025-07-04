@@ -147,7 +147,3 @@ This repository follows standard development practices. All changes must:
 4. Follow semantic versioning principles
 
 Please ensure all contributions maintain the foundational role of this repository and its zero-dependency design.
-
-## License
-
-MIT License - see LICENSE file for details.
