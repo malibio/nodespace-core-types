@@ -140,13 +140,13 @@ The type system supports future growth:
 
 ## Contributing
 
-This repository follows the NodeSpace development workflow. All changes must:
+This repository follows standard development practices. All changes must:
 1. Maintain backward compatibility
 2. Pass all tests and linting
 3. Update documentation
 4. Follow semantic versioning principles
 
-For detailed contribution guidelines, see the [NodeSpace System Design](../nodespace-system-design/README.md) repository.
+Please ensure all contributions maintain the foundational role of this repository and its zero-dependency design.
 
 ## License
 
