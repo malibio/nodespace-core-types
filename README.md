@@ -99,16 +99,17 @@ This repository sits at the foundation of the NodeSpace system:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Related Repositories
+## Architecture Context
 
-The NodeSpace system consists of multiple repositories that depend on this core types library:
+Part of the NodeSpace system architecture:
 
-- **[nodespace-core-logic](https://github.com/malibio/nodespace-core-logic)** - Business logic orchestration and service coordination
-- **[nodespace-data-store](https://github.com/malibio/nodespace-data-store)** - Vector database integration and data persistence
-- **[nodespace-nlp-engine](https://github.com/malibio/nodespace-nlp-engine)** - AI/ML processing and embedding generation
-- **[nodespace-workflow-engine](https://github.com/malibio/nodespace-workflow-engine)** - Automation and event processing
-- **[nodespace-core-ui](https://github.com/malibio/nodespace-core-ui)** - React components and frontend interfaces
-- **[nodespace-desktop-app](https://github.com/malibio/nodespace-desktop-app)** - Tauri desktop application
+1. **[nodespace-core-types](https://github.com/malibio/nodespace-core-types)** ← **You are here**
+2. [nodespace-data-store](https://github.com/malibio/nodespace-data-store) - Vector database integration and data persistence
+3. [nodespace-nlp-engine](https://github.com/malibio/nodespace-nlp-engine) - AI/ML processing and LLM integration  
+4. [nodespace-workflow-engine](https://github.com/malibio/nodespace-workflow-engine) - Automation and event processing
+5. [nodespace-core-logic](https://github.com/malibio/nodespace-core-logic) - Business logic orchestration
+6. [nodespace-core-ui](https://github.com/malibio/nodespace-core-ui) - React components and UI
+7. [nodespace-desktop-app](https://github.com/malibio/nodespace-desktop-app) - Tauri application shell
 
 ## Development
 
