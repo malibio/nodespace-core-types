@@ -1679,10 +1679,6 @@ impl Default for ContextStrategy {
 pub struct NodeContext {
     /// Parent node for hierarchical context
     pub parent: Option<Node>,
-    /// Previous sibling for sequential context
-    pub previous_sibling: Option<Node>,
-    /// Next sibling for sequential context
-    pub next_sibling: Option<Node>,
     /// All sibling nodes for broader context
     pub siblings: Vec<Node>,
     /// Nodes that mention this node (references)
@@ -1709,15 +1705,8 @@ impl NodeContext {
     }
 
     /// Add sibling context
-    pub fn with_siblings(
-        mut self,
-        previous: Option<Node>,
-        next: Option<Node>,
-        all_siblings: Vec<Node>,
-    ) -> Self {
-        self.previous_sibling = previous;
-        self.next_sibling = next;
-        self.siblings = all_siblings;
+    pub fn with_siblings(mut self, siblings: Vec<Node>) -> Self {
+        self.siblings = siblings;
         self
     }
 
