@@ -76,20 +76,39 @@ This repository sits at the foundation of the NodeSpace system:
 │                    NodeSpace Architecture                    │
 ├─────────────────────────────────────────────────────────────┤
 │  Desktop App (Tauri) - User Interface                      │
+│  https://github.com/malibio/nodespace-desktop-app          │
 ├─────────────────────────────────────────────────────────────┤
 │  Core UI (React) - Frontend Components                     │
+│  https://github.com/malibio/nodespace-core-ui              │
 ├─────────────────────────────────────────────────────────────┤
 │  Core Logic - Business Orchestration                       │
+│  https://github.com/malibio/nodespace-core-logic           │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
 │  │  Data Store     │  │  NLP Engine     │  │ Workflow Engine │ │
 │  │  (Vector DB)    │  │  (AI/ML)        │  │  (Automation)   │ │
+│  │ github.com/     │  │ github.com/     │  │ github.com/     │ │
+│  │ malibio/        │  │ malibio/        │  │ malibio/        │ │
+│  │ nodespace-      │  │ nodespace-      │  │ nodespace-      │ │
+│  │ data-store      │  │ nlp-engine      │  │ workflow-engine │ │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
 ├─────────────────────────────────────────────────────────────┤
 │           Core Types (This Repository)                      │
 │    Node, NodeId, NodeSpaceResult, NodeSpaceError           │
+│    https://github.com/malibio/nodespace-core-types         │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## Related Repositories
+
+The NodeSpace system consists of multiple repositories that depend on this core types library:
+
+- **[nodespace-core-logic](https://github.com/malibio/nodespace-core-logic)** - Business logic orchestration and service coordination
+- **[nodespace-data-store](https://github.com/malibio/nodespace-data-store)** - Vector database integration and data persistence
+- **[nodespace-nlp-engine](https://github.com/malibio/nodespace-nlp-engine)** - AI/ML processing and embedding generation
+- **[nodespace-workflow-engine](https://github.com/malibio/nodespace-workflow-engine)** - Automation and event processing
+- **[nodespace-core-ui](https://github.com/malibio/nodespace-core-ui)** - React components and frontend interfaces
+- **[nodespace-desktop-app](https://github.com/malibio/nodespace-desktop-app)** - Tauri desktop application
 
 ## Development
 
